@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // One document per trip, named by your shared trip code (use a long, unguessable one,
+    // e.g. "rajasthan-nov26-k7x9q2"). You must know the exact code to open the trip.
+    //  - `get` only: nobody can LIST or browse other trips.
+    //  - no delete.
+    //  - writes must be a single text field called "state" under ~900 KB.
+    match /trips/{tripId} {
+      allow get: if request.auth != null && tripId.size() >= 8 && tripId.size() <= 60;
+      allow create, update: if request.auth != null
+                            && tripId.size() >= 8 && tripId.size() <= 60
+                            && request.resource.data.keys().hasOnly(['state'])
+                            && request.resource.data.state is string
+                            && request.resource.data.state.size() < 900000;
+      allow list, delete: if false;
+    }
+  }
+}
