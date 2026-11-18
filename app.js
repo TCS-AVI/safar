@@ -5,7 +5,7 @@ import { firebaseConfig } from './firebase-config.js';
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let seedN = 0, seeding = false;
-const uid = () => seeding ? 'r27-' + (++seedN) : Math.random().toString(36).slice(2, 10);
+const uid = () => seeding ? 'r28-' + (++seedN) : Math.random().toString(36).slice(2, 10);
 const inr = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
 const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const toDate = d => new Date(d + 'T00:00:00');
@@ -914,26 +914,13 @@ function loadSample(auto) {
   S.places = [
     P('Raptor Safari – Jorbeer Conservation Reserve', 'safari', 'Bikaner', '', '', 'unknown', 'From your notes: “CHECK” – https://jorbeer.com/vinayak-guest-house/ – DR SOLANKI. About 14.5 km south-east of Bikaner. Best day: 24 Jan (you arrive 23 Jan 06:15 and leave on the 22:30 train on 24 Jan). Pin not set – tap Edit → Find on map.', { plan: 'yes', tix: 'tobook' }),
     P('Sambhar Salt Lake – cab trip from Phulera', 'nature', 'Phulera', 26.9086, 75.1887, 'unknown', 'From your notes: ₹2,000 for a cab to see the salt lake and nearby sights. Best day: 28 Jan (you arrive 27 Jan 13:18, night train 23:25 on 28 Jan). Pin is approximate.', { plan: 'yes', cost: 2000 }),
-    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your notes just say “SAFARI -”. Add the name, price and date when you know.', { plan: 'yes' }),
-    P('Amber Fort', 'fort', 'Jaipur', 26.9855, 75.8513, 'unknown', IDEA + 'Go early to beat crowds. Indian adults about ₹200 each (some sources say ₹100) – confirm.', { cost: 400 }),
-    P('City Palace, Jaipur', 'museum', 'Jaipur', 26.9258, 75.8237, 'unknown', IDEA + 'Run by the royal family trust, so confirm the price at the counter (reported about ₹200–400 pp).', { cost: 400 }),
-    P('Hawa Mahal', 'fort', 'Jaipur', 26.9239, 75.8267, 'unknown', IDEA + 'The outside is free to view from the street (great at sunset); interior about ₹100 pp.', { cost: 200 }),
-    P('Jantar Mantar', 'museum', 'Jaipur', 26.9247, 75.8246, 'unknown', IDEA + 'About ₹100 pp (older listings ₹50).', { cost: 200 }),
-    P('LMB – Laxmi Misthan Bhandar (Johari Bazaar)', 'food', 'Jaipur', 26.9188, 75.8268, 'pure', IDEA + 'Pure-veg Rajasthani thali & sweets (please confirm hours).'),
-    P('Junagarh Fort', 'fort', 'Bikaner', 28.0179, 73.3153, 'unknown', IDEA + 'Bikaner’s main fort. Entry fee and timings not checked.'),
-    P('Karni Mata Temple, Deshnok', 'temple', 'Bikaner', 27.7907, 73.3419, 'unknown', IDEA + 'Famous temple of the rats, a short trip from Bikaner. Timings and any fees not checked.'),
-    P('Keoladeo National Park', 'nature', 'Bharatpur', 27.1667, 77.5167, 'unknown', IDEA + 'Bird sanctuary right by Bharatpur – good for the 25–26 Jan days. Entry fee, cycle/rickshaw hire and timings not checked.'),
-    P('Jawai leopard safari', 'safari', 'Jawai', 25.12, 73.15, 'unknown', IDEA + 'Jawai is known for leopards living on the granite hills; safaris and prices are arranged through lodges. Not checked. Pin is approximate.'),
-    P('Mehrangarh Fort', 'fort', 'Jodhpur', 26.2979, 73.0184, 'unknown', IDEA + 'One listing: ₹100 pp for Indian adults, 9:00–17:00 (foreign adults ₹600 incl. audio guide). Confirm at the gate.', { cost: 200 }),
-    P('Jaswant Thada', 'temple', 'Jodhpur', 26.3044, 73.021, 'unknown', IDEA + 'Small fee at the counter (price not confirmed).'),
-    P('Clock Tower & Sardar Market', 'market', 'Jodhpur', 26.294, 73.0187, 'options', IDEA + 'Spices, sweets, handicrafts, local lassi and snacks. Check veg status of each stall.'),
-    P('Jaisalmer Fort', 'fort', 'Jaisalmer', 26.9127, 70.9128, 'unknown', IDEA + 'About ₹50 pp for Indian visitors, Palace Museum included; roughly 9:00–18:00. Tickets at the gate.', { cost: 100 }),
-    P('Gadisar Lake', 'nature', 'Jaisalmer', 26.9101, 70.914, 'unknown', IDEA + 'Sunset walk.'),
-    P('Kuldhara Abandoned Village', 'temple', 'Jaisalmer', 26.8137, 70.7889, 'unknown', IDEA + 'Small entry fee at the gate (not confirmed).'),
-    P('Sam Sand Dunes – camel & jeep safari', 'dunes', 'Jaisalmer', 26.8333, 70.5167, 'unknown', IDEA + 'Arrive for sunset. Camel ride and jeep safari prices are agreed locally – ask your camp (Magic Heritage Camp may arrange it).')
+    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your notes just say “SAFARI -”. Add the name, price and date when you know.', { plan: 'yes' })
   ];
   S.expenses = [];
-  const L = defaultLists(S.trip.start); S.tasks = L.tasks; S.contacts = L.contacts;
+  // only what is in your two documents (no packing lists, no extra sightseeing ideas)
+  const n0 = Date.now(), K = text => ({ id: id(), group: 'todo', text, who: 'both', due: '', done: false, _u: n0, _o: n0 + (seedN++) });
+  S.tasks = [K('Choose one hotel each in Jaipur, Bikaner and Bharatpur (Bookings → ✓ Choose)'), K('Check the Raptor Safari at Jorbeer Conservation Reserve with Dr Solanki (your note says “CHECK”)'), K('Fill in the Phulera safari details (your notes only say “SAFARI -”)'), K('Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary differ (see the “Alternative” legs on Bookings)')];
+  S.contacts = [{ id: id(), name: 'Dr Solanki', role: 'Jorbeer raptor safari (from your notes)', phone: '', notes: 'https://jorbeer.com/vinayak-guest-house/ – add his phone number', _u: n0, _o: n0 }];
   const stamp = auto ? 1 : Date.now() + 1; // first-run copy is stamped 'oldest' so anything either of you edits always wins on sync
   COLS.forEach(c => S[c].forEach(it => { it._u = stamp; }));
   S.trip._u = stamp;
