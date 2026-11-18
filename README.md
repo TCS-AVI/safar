@@ -37,7 +37,8 @@ firebase deploy
 
 - **Home** – countdown, **Trip health** (what is missing or clashing), a **Today** card during the trip (today's plan, tonight's hotel with tap-to-call), the weather forecast, what is still to book, and budget.
 - **Plan** – day-by-day timeline combining transport, hotels and places.
-- **Bookings** – transport with status (Not booked → Waitlist/RAC → Confirmed) and *who is travelling* (both / you / her), plus hotels with veg flag and phone number.
+- **Hotels** – its own tab: night-by-night view (which nights have no bed, one tap to add), booked status, shortlist + Choose, phone, veg info.
+- **Transport** – transport with status (Not booked → Waitlist/RAC → Confirmed) and *who is travelling* (both / you / her), plus hotels with veg flag and phone number.
 - **Places** – dated places, veg flag, ticket flag ("Need to book ahead" shows up in Trip health), visited tick.
 - **Map** – numbered route of places, dashed travel lines, hotels; tap a day chip for just that day.
 - **Money** – spending in ₹ or AED, equal split, category totals, who owes whom.

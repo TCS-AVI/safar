@@ -221,12 +221,12 @@ function fieldHTML(f, v) {
   return `<div><label for="${id}">${esc(f.l)}${f.req ? ' *' : ''}</label>${ctl}</div>`;
 }
 
-function openForm(kind, item) {
+function openForm(kind, item, pre) {
   const F = FORMS[kind], modal = $('#modal'), form = $('#modalForm');
   let v;
   if (F.single) v = { ...S.trip, p0: people()[0], p1: people()[1] };
   else if (item) v = item;
-  else v = Object.fromEntries(F.fields.filter(f => f.def !== undefined).map(f => [f.k, typeof f.def === 'function' ? f.def() : f.def]));
+  else v = { ...Object.fromEntries(F.fields.filter(f => f.def !== undefined).map(f => [f.k, typeof f.def === 'function' ? f.def() : f.def])), ...(pre || {}) };
   let html = `<h3>${item ? 'Edit' : 'Add'} · ${F.title}</h3>`, buf = [];
   const flush = () => { if (buf.length) { html += `<div class="two">${buf.join('')}</div>`; buf = []; } };
   F.fields.forEach(f => { const h = fieldHTML(f, v); if (f.w === 'h') { buf.push(h); if (buf.length === 2) flush(); } else { flush(); html += h; } });
@@ -246,6 +246,7 @@ function openForm(kind, item) {
     e.preventDefault();
     const fd = new FormData(form), out = {};
     F.fields.forEach(f => { let x = fd.get(f.k); if (f.t === 'number') x = x === '' || x === null ? '' : Number(x); out[f.k] = x; });
+    if (kind === 'stay' && out.checkin && out.checkout && out.checkout <= out.checkin) { toast('Check-out must be after check-in'); return; }
     if (F.single) {
       const { p0, p1, ...rest } = out;
       if (rest.start && rest.end && rest.end < rest.start) { toast('End date is before the start date'); return; }
@@ -290,9 +291,10 @@ function viewHome() {
   const next = events().filter(e => e.date >= today).slice(0, 4);
   return `
   <div class="card"><div class="row"><div><h3>${esc(t.name)}</h3><div class="muted">${t.start ? fmt(t.start) : 'Set dates'}${t.end ? ' → ' + fmt(t.end) : ''}</div></div><div style="text-align:right">${countdown}</div></div></div>
+  <div class="quick">${[['booking', '🚆', 'Transport'], ['stay', '🏨', 'Hotel'], ['place', '📍', 'Place'], ['expense', '💰', 'Expense']].map(([k, i, l]) => `<button class="btn ghost" data-act="add" data-kind="${k}"><span>${i}</span>＋ ${l}</button>`).join('')}</div>
   <div class="grid2" style="margin-bottom:10px">
-    <div class="stat"><span class="muted">🎫 Transport confirmed</span><b>${cb}/${nb.length}</b></div>
-    <div class="stat"><span class="muted">🏨 Hotels booked</span><b>${bs}/${ns.length}</b></div>
+    <div class="stat" data-act="gotab" data-v="book" style="cursor:pointer"><span class="muted">🎫 Transport confirmed</span><b>${cb}/${nb.length}</b></div>
+    <div class="stat" data-act="gotab" data-v="hotels" style="cursor:pointer"><span class="muted">🏨 Hotels booked</span><b>${bs}/${ns.length}</b></div>
     <div class="stat"><span class="muted">📍 Places planned</span><b>${S.places.filter(p => p.plan !== 'idea').length}</b></div>
     <div class="stat"><span class="muted">✅ Visited</span><b>${S.places.filter(p => p.visited).length}</b></div>
   </div>
@@ -364,23 +366,65 @@ function viewPlan() {
     html += `<div class="day" id="day-${d}"><h4>${d === today ? '🟢 ' : ''}${out ? 'Outside trip dates' : 'Day ' + (diffDays(base, d) + 1)} · ${fmt(d)}${cities ? ' · ' + esc(cities) : ''}</h4>
       ${items.map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}${e.timer ? `<div style="margin-top:3px">${e.timer}</div>` : ''}</div>${e.pill}</div>`).join('')}
       ${stay.map(h => `<div class="item"><div class="ico">🌙</div><div class="grow muted">Staying at ${esc(h.name)}</div></div>`).join('')}
-      ${!items.length && !stay.length ? '<div class="muted">Free day – add something 🙂</div>' : ''}</div>`;
+      ${!items.length && !stay.length ? '<div class="muted">Free day – add something 🙂</div>' : ''}
+      <div class="dayadd"><button class="btn ghost small" data-act="add" data-kind="place" data-pre="${new URLSearchParams({ date: d })}">＋ Place</button><button class="btn ghost small" data-act="add" data-kind="booking" data-pre="${new URLSearchParams({ date: d })}">＋ Transport</button><button class="btn ghost small" data-act="add" data-kind="stay" data-pre="${new URLSearchParams({ checkin: d, checkout: addDays(d, 1) })}">＋ Hotel</button></div></div>`;
     d = addDays(d, 1);
   }
   const outCard = outEv.length ? `<div class="card hl warn"><h3>⚠️ ${outEv.length} item${outEv.length > 1 ? 's are' : ' is'} dated outside ${fmtS(first)}–${fmtS(last)} ${new Date(last + 'T00:00:00').getFullYear()}</h3><div class="muted">Earliest is ${fmt(outEv[0].date)} ${new Date(outEv[0].date + 'T00:00:00').getFullYear()}. If your trip dates are right and these are just in the wrong year or week, move them all in one go.</div><div style="margin-top:8px"><button class="btn small" data-act="shiftdates">↔ Move all dates to start on ${fmtS(first)}</button></div>${outEv.slice(0, 8).map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b><div class="muted">${fmt(e.date)} ${new Date(e.date + 'T00:00:00').getFullYear()}</div></div></div>`).join('')}${outEv.length > 8 ? `<div class="muted">…and ${outEv.length - 8} more</div>` : ''}</div>` : '';
   return `${outCard}<div class="h2">Calendar <span><button class="btn ghost small" data-act="edit" data-kind="trip">Change dates</button></span></div>${calendarHTML(ev, first, last)}<div class="h2">Day-by-day <span>${addBtn('place', 'Place')}</span></div>${html}`;
 }
 
+const statSel = (kind, id, cur, opts) => `<select data-act="setstat" data-kind="${kind}" data-id="${id}" style="width:auto;max-width:140px;font-size:12px;padding:5px">${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+function stayCard(h) {
+  return `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="stay" data-id="${h.id}" style="cursor:pointer"><h3>🏨 ${esc(h.name)}</h3><div class="muted">${esc(h.city || '')} · ${fmtS(h.checkin)}${h.checkout ? ' → ' + fmtS(h.checkout) : ''}${h.checkin && h.checkout ? ' · ' + diffDays(h.checkin, h.checkout) + ' night' + (diffDays(h.checkin, h.checkout) > 1 ? 's' : '') : ''}${h.cost ? ' · ' + inr(h.cost) : ''}</div><div style="margin-top:4px">${pill(h.veg === 'non' ? 'bad' : 'veg', VEG_L[h.veg])}${h.phone ? ` <a href="tel:${esc(h.phone)}">📞 ${esc(h.phone)}</a>` : ''}</div>${h.notes ? `<div class="muted">${esc(h.notes)}</div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(h.status, label(SSTAT, h.status))}${h.status === 'shortlist' ? `<button class="btn small" data-act="choose" data-id="${h.id}">✓ Choose</button>` : ''}${statSel('stay', h.id, h.status, SSTAT)}</div></div></div>`;
+}
+function viewHotels() {
+  const t = S.trip, live = S.stays.filter(h => !['cancelled'].includes(h.status)), real = live.filter(h => h.status !== 'shortlist');
+  const booked = real.filter(h => h.status === 'booked').length;
+  // night-by-night coverage across the trip
+  let nights = '', gaps = 0, total = 0;
+  if (t.start && t.end && t.end > t.start) {
+    const rows = [];
+    for (let d = t.start, g = 0; d < t.end && g < 120; d = addDays(d, 1), g++) {
+      total++;
+      const next = addDays(d, 1);
+      const stay = real.find(h => h.checkin && h.checkin <= d && (h.checkout || addDays(h.checkin, 1)) > d);
+      const opts = live.filter(h => h.status === 'shortlist' && h.checkin && h.checkin <= d && (h.checkout || addDays(h.checkin, 1)) > d);
+      const train = S.bookings.find(b => b.status !== 'cancelled' && b.status !== 'option' && b.date === d && b.arrDate && b.arrDate > d && (b.time || '') >= '17:00');
+      const arrived = S.bookings.filter(b => b.status !== 'cancelled' && b.status !== 'option' && b.to && (b.arrDate || b.date) <= d).sort((x, y) => (y.arrDate || y.date).localeCompare(x.arrDate || x.date))[0];
+      let cell;
+      if (stay) cell = `<span>${esc(stay.name)} ${pill(stay.status, label(SSTAT, stay.status))}</span>`;
+      else if (opts.length) cell = `<span class="muted">${opts.length} options shortlisted – press ✓ Choose below</span>`;
+      else if (train) cell = `<span class="muted">🚆 Night train (${esc(train.from)} → ${esc(train.to)})</span>`;
+      else { gaps++; cell = `<button class="btn small" data-act="add" data-kind="stay" data-pre="${new URLSearchParams({ checkin: d, checkout: next, city: arrived ? arrived.to : '' })}">＋ Add hotel for this night</button>`; }
+      rows.push(`<div class="item"><div class="ico">🌙</div><div class="grow"><b>${fmt(d)}</b><div>${cell}</div></div></div>`);
+    }
+    nights = `<details class="card" ${gaps ? 'open' : ''}><summary><b>🌙 Night by night</b> <span class="muted">· ${gaps ? gaps + ' without a bed yet' : 'every night is covered ✓ (tap to view)'}</span></summary>${rows.join('')}</details>`;
+  } else nights = `<div class="card"><div class="muted">Set your trip start and end dates (Home → Trip settings) to see which nights still need a hotel.</div></div>`;
+  const f = UI.hotelFilter || 'all';
+  const filters = [['all', 'All'], ['tobook', 'To book'], ['booked', 'Booked ✓'], ['shortlist', 'Shortlisted'], ['cancelled', 'Cancelled']];
+  const okf = h => f === 'all' ? h.status !== 'cancelled' : f === 'tobook' ? ['notbooked', 'pending'].includes(h.status) : h.status === f;
+  const list = S.stays.filter(okf).sort((a, b) => (a.checkin || '').localeCompare(b.checkin || '') || a.name.localeCompare(b.name));
+  const groups = []; list.forEach(h => { const k = (h.city || 'Other') + '|' + (h.checkin || ''); let g = groups.find(x => x.k === k); if (!g) groups.push(g = { k, city: h.city || 'Other', ci: h.checkin, co: h.checkout, items: [] }); g.items.push(h); });
+  const cost = real.reduce((a, h) => a + (+h.cost || 0), 0);
+  return `<div class="h2">Hotels & stays <span>${addBtn('stay', 'Add hotel')}</span></div>
+  <div class="grid2" style="margin-bottom:10px"><div class="stat"><span class="muted">Booked</span><b>${booked}/${real.length}</b></div><div class="stat"><span class="muted">Nights without a bed</span><b>${t.start && t.end ? gaps + '/' + total : '–'}</b></div></div>
+  <div class="muted" style="margin:-4px 0 10px">Planned hotel cost: <b>${inr(cost)}</b>${S.stays.some(h => h.status === 'shortlist') ? ' (shortlisted options not counted until you choose one)' : ''}</div>
+  ${nights}
+  <div class="chips">${filters.map(([v, l]) => `<button class="chip ${f === v ? 'on' : ''}" data-act="hotelfilter" data-v="${v}">${l}</button>`).join('')}</div>
+  ${groups.length ? groups.map(g => `<div class="h2" style="font-size:13px;margin-top:12px">📍 ${esc(g.city)} <span>${g.ci ? fmtS(g.ci) : ''}${g.co ? ' → ' + fmtS(g.co) : ''}</span></div>${g.items.map(stayCard).join('')}`).join('') : empty('No hotels here yet. Tap “＋ Add hotel” – name, city and dates are all you need.', '<button class="btn" data-act="add" data-kind="stay">＋ Add hotel</button>')}
+  <button class="btn fab" data-act="add" data-kind="stay">＋</button>`;
+}
 function viewBook() {
   const modes = [['all', 'All'], ...MODES.map(m => [m[0], m[1]])];
   const list = S.bookings.filter(b => UI.bookMode === 'all' || b.mode === UI.bookMode).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const sel = (kind, id, cur, opts) => `<select data-act="setstat" data-kind="${kind}" data-id="${id}" style="width:auto;max-width:140px;font-size:12px;padding:5px">${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
   return `
-  <div class="h2">Transport <span>${addBtn('booking', 'Add')}</span></div>
+  <div class="h2">Transport <span>${addBtn('booking', 'Add train / bus / flight / cab')}</span></div>
   <div class="chips">${modes.map(([v, l]) => `<button class="chip ${UI.bookMode === v ? 'on' : ''}" data-act="bookmode" data-v="${v}">${l}</button>`).join('')}</div>
   ${list.length ? list.map(b => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><h3>${MODE_ICO[b.mode]} ${esc(b.from)} → ${esc(b.to)} ${whoPill(b.who)}</h3><div class="muted">${fmt(b.date)}${b.time ? ' · ' + esc(b.time) + tzNote(b.depTz) : ''}${arrText(b)}${b.ref ? ' · Ref ' + esc(b.ref) : ''}${b.cost ? ' · ' + inr(b.cost) : ''}</div>${timerHTML(b) ? `<div style="margin:5px 0">${timerHTML(b)}</div>` : ''}${b.notes ? `<div class="muted">${esc(b.notes)}</div>` : ''}${b.link ? `<div style="margin-top:4px"><a href="${esc(b.link)}" target="_blank" rel="noopener">Open booking site ↗</a></div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(b.status, label(BSTAT, b.status))}${sel('booking', b.id, b.status, BSTAT)}</div></div></div>`).join('') : empty('No transport yet. Add trains, buses, flights and cabs.')}
-  <div class="h2">Hotels & stays <span>${addBtn('stay', 'Add')}</span></div>
-  ${S.stays.length ? [...S.stays].sort((a, b) => (a.checkin || '').localeCompare(b.checkin || '')).map(h => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="stay" data-id="${h.id}" style="cursor:pointer"><h3>🏨 ${esc(h.name)}</h3><div class="muted">${esc(h.city || '')} · ${fmtS(h.checkin)}${h.checkout ? ' → ' + fmtS(h.checkout) : ''}${h.cost ? ' · ' + inr(h.cost) : ''}</div><div style="margin-top:4px">${pill(h.veg === 'non' ? 'bad' : 'veg', VEG_L[h.veg])}${h.phone ? ` <a href="tel:${esc(h.phone)}">📞 ${esc(h.phone)}</a>` : ''}</div>${h.notes ? `<div class="muted">${esc(h.notes)}</div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(h.status, label(SSTAT, h.status))}${h.status === 'shortlist' ? `<button class="btn small" data-act="choose" data-id="${h.id}">✓ Choose</button>` : ''}${sel('stay', h.id, h.status, SSTAT)}</div></div></div>`).join('') : empty('No hotels yet.')}`;
+  <div class="muted" style="margin-top:14px">🏨 Looking for hotels? <button class="btn ghost small" data-act="gotab" data-v="hotels">Open the Hotels tab</button></div>
+  <button class="btn fab" data-act="add" data-kind="booking">＋</button>`;
 }
 
 function viewPlaces() {
@@ -456,7 +500,7 @@ function viewMoney() {
     <div class="bar" style="margin:8px 0"><i class="${left < 0 ? 'over' : ''}" style="width:${t.budget ? Math.min(100, (t.spent + t.booked) / t.budget * 100) : 0}%"></i></div>
     <div class="grid2"><div><span class="muted">Spent on trip</span><br><b>${inr(t.spent)}</b></div><div><span class="muted">Booked (tickets + hotels)</span><br><b>${inr(t.booked)}</b></div>
     <div><span class="muted">Planned: unbooked travel, hotels &amp; tickets</span><br><b>${inr(t.planned)}</b></div><div><span class="muted">Avg / spending day</span><br><b>${inr(t.spent / days)}</b></div></div>
-    <div class="muted" style="margin-top:6px">Enter ticket & hotel prices under Bookings; use this tab for day-to-day spending so nothing is counted twice.</div></div>
+    <div class="muted" style="margin-top:6px">Enter ticket & hotel prices under Transport and Hotels; use this tab for day-to-day spending so nothing is counted twice.</div></div>
   <div class="card"><h3>🤝 Who owes whom</h3><div>${settle}</div><div class="muted">${esc(pp[0])} paid ${inr(paid[0])} · ${esc(pp[1])} paid ${inr(paid[1])} (equal-split items only settle)</div></div>
   ${cats.length ? `<div class="h2">By category</div><div class="card">${cats.map(([k, v]) => `<div style="margin:6px 0"><div class="row"><span>${esc(label(ECATS, k))}</span><b>${inr(v)}</b></div><div class="bar"><i style="width:${v / maxC * 100}%"></i></div></div>`).join('')}</div>` : ''}
   <div class="h2">Expenses <span>${addBtn('expense', 'Add')}</span></div>
@@ -471,7 +515,7 @@ function render() {
   const ds = [...S.bookings.map(b => b.date), ...S.stays.map(h => h.checkin), ...S.places.map(p => p.date)].filter(Boolean).sort();
   $('#tripSub').textContent = S.trip.start ? `${fmtS(S.trip.start)}${S.trip.end ? ' – ' + fmtS(S.trip.end) : ''}` : (ds.length ? `${fmtS(ds[0])} – ${fmtS(ds[ds.length - 1])}` : 'Plan together, travel easy');
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === UI.tab));
-  const views = { home: viewHome, plan: viewPlan, book: viewBook, places: viewPlaces, map: viewMap, money: viewMoney, lists: viewLists };
+  const views = { home: viewHome, plan: viewPlan, book: viewBook, hotels: viewHotels, places: viewPlaces, map: viewMap, money: viewMoney, lists: viewLists };
   $('#view').innerHTML = views[UI.tab]();
   tickTimers();
   if (UI.tab === 'map') setTimeout(drawMap, 30);
@@ -486,9 +530,11 @@ document.addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t || t.dataset.act === 'setstat') return;
   const { act, kind, id, v } = t.dataset;
   if (e.target.closest('a')) return;
-  if (act === 'add') openForm(kind);
+  if (act === 'add') openForm(kind, null, t.dataset.pre ? Object.fromEntries(new URLSearchParams(t.dataset.pre)) : null);
   else if (act === 'edit') openForm(kind, findItem(kind, id));
   else if (act === 'bookmode') { UI.bookMode = v; render(); }
+  else if (act === 'hotelfilter') { UI.hotelFilter = v; render(); }
+  else if (act === 'gotab') { e.preventDefault(); UI.tab = v; render(); window.scrollTo(0, 0); }
   else if (act === 'placefilter') { UI.placeFilter = v; render(); }
   else if (act === 'mapday') { UI.mapDay = v; render(); }
   else if (act === 'visit') { const p = S.places.find(x => x.id === id); p.visited = !p.visited; touch(p); save(); render(); }
@@ -523,6 +569,7 @@ document.addEventListener('keydown', e => {
   save(); render();
   const nx = document.querySelector(`input[data-quick="${g}"]`); if (nx) nx.focus();
 });
+$('#gearBtn').onclick = () => openForm('trip', S.trip);
 $('#syncBadge').onclick = () => { if (cloud) pullCloud(); else askCode(); };
 
 /* ---------- backup / restore / sample ---------- */
@@ -792,7 +839,7 @@ function arrivalsCard() {
   const now = Date.now();
   const list = S.bookings.filter(b => b.status !== 'cancelled' && b.status !== 'option').map(b => ({ b, a: arrOf(b) })).filter(x => x.a && x.a.getTime() > now - 6 * 36e5).sort((x, y) => x.a - y.a).slice(0, 4);
   if (!list.length) return '';
-  return `<div class="card wide"><h3>⏱ Next arrivals</h3>${list.map(({ b }) => `<div class="item" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><div class="ico">${MODE_ICO[b.mode]}</div><div class="grow"><b>${esc(b.from)} → ${esc(b.to)}</b> ${whoPill(b.who)}<div class="muted">${fmt(b.date)}${b.time ? ' ' + esc(b.time) : ''}${arrText(b)}</div><div style="margin-top:3px">${timerHTML(b)}</div></div></div>`).join('')}<div class="muted" style="margin-top:6px">Every leg has its own timer under Bookings.</div></div>`;
+  return `<div class="card wide"><h3>⏱ Next arrivals</h3>${list.map(({ b }) => `<div class="item" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><div class="ico">${MODE_ICO[b.mode]}</div><div class="grow"><b>${esc(b.from)} → ${esc(b.to)}</b> ${whoPill(b.who)}<div class="muted">${fmt(b.date)}${b.time ? ' ' + esc(b.time) : ''}${arrText(b)}</div><div style="margin-top:3px">${timerHTML(b)}</div></div></div>`).join('')}<div class="muted" style="margin-top:6px">Every leg has its own timer under Transport.</div></div>`;
 }
 function shortlistCost() {
   const g = {};
@@ -818,8 +865,8 @@ function defaultLists(start) {
     T('docs', 'Travel insurance papers'), T('docs', 'Copies of IDs kept separately (photo in phone + paper)'),
     T('todo', 'Book the 8 trains on IRCTC as each 60-day window opens – first one (19 Jan) opens about ' + (start ? fmtS(D(-60)) : '60 days before'), 'both', D(-60)),
     T('todo', 'Add HER flight Dubai → Jaipur (not in your documents; the first hotel night is 20 Jan)', '1', D(-45)),
-    T('todo', 'Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary disagree (see Bookings: the “Alternative” legs)', 'both', D(-45)),
-    T('todo', 'Pick one hotel each in Jaipur, Bikaner and Bharatpur (Bookings → ✓ Choose)', 'both', D(-30)),
+    T('todo', 'Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary disagree (see Transport: the “Alternative” legs)', 'both', D(-45)),
+    T('todo', 'Pick one hotel each in Jaipur, Bikaner and Bharatpur (Hotels → ✓ Choose)', 'both', D(-30)),
     T('todo', 'Check the Jorbeer raptor safari with Dr Solanki (link in Places)', 'both', D(-30)),
     T('todo', 'Fill in the Phulera safari details (your notes only say “SAFARI -”)', 'both', D(-30)),
     T('todo', 'Arrange the transfer between Falna station / Jodhpur and Jawai (not in your documents)', 'both', D(-30)),
@@ -936,7 +983,7 @@ function loadSample(auto) {
   S.expenses = [];
   // only what is in your two documents (no packing lists, no extra sightseeing ideas)
   const n0 = Date.now(), K = text => ({ id: id(), group: 'todo', text, who: 'both', due: '', done: false, _u: n0, _o: n0 + (seedN++) });
-  S.tasks = [K('Choose one hotel each in Jaipur, Bikaner and Bharatpur (Bookings → ✓ Choose)'), K('Check the Raptor Safari at Jorbeer Conservation Reserve with Dr Solanki (your note says “CHECK”)'), K('Fill in the Phulera safari details (your notes only say “SAFARI -”)'), K('Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary differ (see the “Alternative” legs on Bookings)')];
+  S.tasks = [K('Choose one hotel each in Jaipur, Bikaner and Bharatpur (Hotels → ✓ Choose)'), K('Check the Raptor Safari at Jorbeer Conservation Reserve with Dr Solanki (your note says “CHECK”)'), K('Fill in the Phulera safari details (your notes only say “SAFARI -”)'), K('Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary differ (see the “Alternative” legs on Transport)')];
   S.contacts = [{ id: id(), name: 'Dr Solanki', role: 'Jorbeer raptor safari (from your notes)', phone: '', notes: 'https://jorbeer.com/vinayak-guest-house/ – add his phone number', _u: n0, _o: n0 }];
   const stamp = auto ? 1 : Date.now() + 1; // first-run copy is stamped 'oldest' so anything either of you edits always wins on sync
   COLS.forEach(c => S[c].forEach(it => { it._u = stamp; }));
