@@ -1,6 +1,6 @@
 // Safar service worker: lets the app open and work with no signal (deserts, trains, flights).
-const V = 'safar-v11', TILES = 'safar-tiles';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
+const V = 'safar-v14', TILES = 'safar-tiles';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'trip.enc', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 
 self.addEventListener('install', e => {

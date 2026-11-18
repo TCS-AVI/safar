@@ -94,3 +94,10 @@ Tap **Home → Load the Rajasthan trip** to fill the app from your TRAIN_BOOKING
 
 ## First open
 The app now opens with the Rajasthan Jan–Feb 2027 trip already in it. Edit anything; edits always win over the starting copy when two phones sync.
+
+## Passcode lock
+The app opens on a passcode screen. Your Rajasthan trip is stored **encrypted** in `trip.enc` (AES-256), so the public site and repository show only scrambled bytes. Unlocking checks the passcode by decrypting that file.
+- **Upload `trip.enc`** with the other files. It must be in the same folder as `index.html`.
+- **Change the passcode:** open `change-passcode.html` in a browser (it works offline), choose `trip.enc`, enter the old and new passcode, and upload the new `trip.enc` it creates.
+- **Lock a phone:** Home → 🔒 Lock. "Remember on this device" keeps a phone unlocked for 30 days.
+- The lock keeps strangers out of the app and hides the built-in trip. Live edits stay protected by your Firebase sync code and rules. Keep both secret.

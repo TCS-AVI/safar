@@ -4,8 +4,7 @@ import { firebaseConfig } from './firebase-config.js';
 /* ---------- helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-let seedN = 0, seeding = false;
-const uid = () => seeding ? 'r28-' + (++seedN) : Math.random().toString(36).slice(2, 10);
+const uid = () => Math.random().toString(36).slice(2, 10);
 const inr = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
 const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const toDate = d => new Date(d + 'T00:00:00');
@@ -266,7 +265,7 @@ async function geocode(q) {
 /* ---------- views ---------- */
 const empty = (msg, btn = '') => `<div class="empty">${msg}<div style="margin-top:12px">${btn}</div></div>`;
 const addBtn = (kind, text) => `<button class="btn small" data-act="add" data-kind="${kind}">＋ ${text}</button>`;
-const sampleBtn = '<button class="btn ghost" data-act="sample">✨ Load our Rajasthan trip (Jan–Feb 2027)</button>';
+const sampleBtn = '<button class="btn ghost" data-act="sample">✨ Load our Rajasthan trip</button>';
 
 function totals() {  // budget: skips cancelled / alternative / ideas; for shortlisted hotels counts the cheapest option
   const rate = +S.trip.aedRate || 24;
@@ -310,6 +309,7 @@ function viewHome() {
     <button class="btn ghost small" data-act="edit" data-kind="trip">⚙️ Trip settings</button>
     <button class="btn ghost small" data-act="code">🔗 Sync code</button>
     <button class="btn ghost small" data-act="syncnow">🔄 Sync now</button>
+    <button class="btn ghost small" data-act="locknow">🔒 Lock</button>
     <button class="btn ghost small" data-act="ics">📅 Add to calendar</button>
     <button class="btn ghost small" data-act="share">📤 Share summary</button>
     <button class="btn ghost small" data-act="print">🖨️ Print</button>
@@ -553,6 +553,7 @@ document.addEventListener('click', e => {
   else if (act === 'print') window.print();
   else if (act === 'sample') loadSample();
   else if (act === 'code') askCode();
+  else if (act === 'locknow') lockNow();
   else if (act === 'syncnow') { if (cloud) { pullCloud(); toast('Syncing…'); } else askCode(); }
   else if (act === 'caljump') { const el = document.getElementById('day-' + v); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); } }
   else if (act === 'backup') backup();
@@ -860,28 +861,21 @@ function defaultLists(start) {
     T('pack', 'Reusable water bottle'), T('pack', 'Basic medicines: motion-sickness, ORS, stomach, pain relief, plasters'),
     T('pack', 'Hand sanitiser & wet wipes'), T('pack', 'Snacks for long train rides (veg)'), T('pack', 'Small padlock/chain for luggage on night trains'),
     T('docs', 'Photo ID for both – Aadhaar / passport (needed on trains, hotels, safaris)'), T('docs', 'Her passport + UAE residence ID; check Indian visa / OCI status', '1'),
-    T('docs', 'IRCTC e-tickets for all 8 train legs saved offline (PDF/screenshots)'), T('docs', 'Flight tickets for 7 Feb saved offline'),
-    T('docs', 'Hotel confirmations saved offline'), T('docs', 'Safari booking confirmations (Jorbeer, Phulera, Jawai)'),
+    T('docs', 'Train e-tickets saved offline (PDF/screenshots)'), T('docs', 'Flight tickets saved offline'),
+    T('docs', 'Hotel confirmations saved offline'), T('docs', 'Safari booking confirmations'),
     T('docs', 'Travel insurance papers'), T('docs', 'Copies of IDs kept separately (photo in phone + paper)'),
-    T('todo', 'Book the 8 trains on IRCTC as each 60-day window opens – first one (19 Jan) opens about ' + (start ? fmtS(D(-60)) : '60 days before'), 'both', D(-60)),
-    T('todo', 'Add HER flight Dubai → Jaipur (not in your documents; the first hotel night is 20 Jan)', '1', D(-45)),
-    T('todo', 'Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary disagree (see Transport: the “Alternative” legs)', 'both', D(-45)),
-    T('todo', 'Pick one hotel each in Jaipur, Bikaner and Bharatpur (Hotels → ✓ Choose)', 'both', D(-30)),
-    T('todo', 'Check the Jorbeer raptor safari with Dr Solanki (link in Places)', 'both', D(-30)),
-    T('todo', 'Fill in the Phulera safari details (your notes only say “SAFARI -”)', 'both', D(-30)),
-    T('todo', 'Arrange the transfer between Falna station / Jodhpur and Jawai (not in your documents)', 'both', D(-30)),
+    T('todo', 'Book trains on IRCTC as each 60-day window opens', 'both', D(-60)),
+    T('todo', 'Choose one hotel wherever you have shortlisted several (Hotels → ✓ Choose)', 'both', D(-30)),
     T('todo', 'Ask each hotel and camp about vegetarian food', 'both', D(-21)),
-    T('todo', 'Ask the Bikaner hotel about early check-in (train arrives 06:15)', 'both', D(-14)),
     T('todo', 'Buy travel insurance', 'both', D(-21)), T('todo', 'Tell her bank/card she is travelling to India', '1', D(-7)),
-    T('todo', 'Download offline maps (Jaipur, Bikaner, Bharatpur, Jaisalmer, Jodhpur, Jawai)', 'both', D(-2)),
+    T('todo', 'Download offline maps of every city you visit', 'both', D(-2)),
     T('todo', 'Withdraw cash – camps and small shops often take cash only', 'both', D(-1)),
     T('todo', 'Share live location with family on travel days'), T('todo', 'Add this trip to your phone calendar (Home → Add to calendar)')
   ];
   const C = (name, role, phone, notes = '') => ({ id: uid(), name, role, phone, notes, _u: n, _o: n + (i++) });
   const contacts = [
     C('Emergency (police, fire, ambulance)', 'India', '112', 'Verify numbers before travel'), C('Ambulance', 'India', '108'),
-    C('Tourist helpline (24x7)', 'Ministry of Tourism', '1363'), C('Railway enquiry / help', 'Indian Railways', '139'),
-    C('Dr Solanki', 'Jorbeer raptor safari (from your notes)', '', 'Booking page: https://jorbeer.com/vinayak-guest-house/ – add his phone number')
+    C('Tourist helpline (24x7)', 'Ministry of Tourism', '1363'), C('Railway enquiry / help', 'Indian Railways', '139')
   ];
   return { tasks, contacts };
 }
@@ -921,103 +915,66 @@ async function shareSummary() {
   try { await navigator.clipboard.writeText(text); toast('Summary copied – paste it into WhatsApp'); } catch { prompt('Copy this summary:', text); }
 }
 
-function loadSample(auto) {
-  if (!auto && (S.bookings.length || S.places.length || S.stays.length) && !confirm('This replaces what you have now with your Rajasthan Jan–Feb 2027 plan. Continue?')) return;
-  seeding = true; seedN = 0;
-  const IRCTC = 'https://www.irctc.co.in', id = uid;
+/* The built-in Rajasthan trip is NOT in this file. It lives in trip.enc, encrypted with your passcode (AES-256),
+   so anyone reading the public site or repository sees only scrambled bytes. */
+const b64 = x => Uint8Array.from(atob(x), c => c.charCodeAt(0));
+async function getBlob() { if (window.__TRIP_ENC) return window.__TRIP_ENC; const r = await fetch('trip.enc', { cache: 'no-cache' }); if (!r.ok) throw new Error('missing'); return r.json(); }
+async function decryptTrip(pass) {
+  const blob = await getBlob();
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(pass).trim().toLowerCase()), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(blob.s), iterations: blob.n, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(blob.i) }, key, b64(blob.c))));
+}
+async function loadSample(auto) {
+  if (!auto && (S.bookings.length || S.places.length || S.stays.length) && !confirm('This replaces what you have now with your saved Rajasthan plan. Continue?')) return;
+  let pass = ''; try { pass = sessionStorage.getItem('safar.pass') || ''; } catch { }
+  if (!pass) pass = prompt('Enter your passcode to load the trip') || '';
+  let d; try { d = await decryptTrip(pass); } catch { if (!auto) toast('Wrong passcode, or the trip file could not be loaded'); return; }
   S.deleted = S.deleted || {};
   const t0 = Date.now();
   COLS.forEach(c => (S[c] || []).forEach(it => { S.deleted[it.id] = t0; }));
-  S.trip = { ...S.trip, name: 'Rajasthan – Jan/Feb 2027', start: '2027-01-19', end: '2027-02-07' };
-
-  // B(mode, from, to, depDate, depTime, arrDate, arrTime, cost, notes, who, extra)
-  const B = (mode, from, to, date, time, arrDate, arrTime, cost, notes, who = 'both', extra = {}) =>
-    ({ id: id(), mode, from, to, date, time, arrDate, arrTime, depTz: '+05:30', arrTz: '+05:30', status: 'notbooked', ref: '', cost, notes, link: mode === 'train' ? IRCTC : '', who, ...extra });
-  S.bookings = [
-    B('train', 'Jammu Tawi', 'Jaipur', '2027-01-19', '18:35', '2027-01-20', '09:35', 1810, 'Option A from your notes (“Jammu Tawai Train”). AC 2 Tier ₹1,810 · First Class ₹3,020 – cost shown is AC 2 Tier for one person. Arrival 9:35 AM next day (implied by the overnight journey). I assumed this one is YOUR train from Jammu. Option B – Surat → Jaipur: BDTS Jaipur SF, departs 20:43, arrives Jaipur 10:05 next day, AC 2 Tier ₹1,825.', '0'),
-    B('train', 'Jaipur', 'Bikaner', '2027-01-22', '23:45', '2027-01-23', '06:15', 1960, 'HWH BKN Express. Fares per person: First Class ₹1,620 · 2nd AC (2 Tier) ₹980. Cost shown = 2 × ₹980 (2 Tier AC). Arrives Bikaner Sat 06:15 – ask the hotel about early check-in.'),
-    B('train', 'Bikaner', 'Bharatpur', '2027-01-24', '22:30', '2027-01-25', '07:25', 2700, 'BKN SF Express. Per person: 2A ₹1,350 · 1A ₹2,230. Cost shown = 2 × ₹1,350.'),
-    B('train', 'Bharatpur', 'Phulera', '2027-01-27', '08:10', '2027-01-27', '13:18', 1450, 'Maudhar Express. AC 2 Tier ₹725 per person. Cost shown = 2 × ₹725.'),
-    B('train', 'Phulera', 'Jaisalmer', '2027-01-28', '23:25', '2027-01-29', '09:00', 2660, 'Swarn Nagri Express. AC 2 Tier ₹1,330 per person. Cost shown = 2 × ₹1,330.'),
-    B('train', 'Jaisalmer', 'Jodhpur', '2027-01-31', '06:30', '2027-01-31', '11:30', 1130, 'JSM SBIB SF Express. AC 3 Tier ₹565 per person. Cost shown = 2 × ₹565.'),
-    B('train', 'Jodhpur', 'Falna', '2027-02-01', '06:00', '2027-02-01', '08:00', 1140, '⚠️ CONFLICT with your itinerary. Train list: Vande Bharat Exp, AC Chair Car ₹570 (assumed per person), leaves Jodhpur 1 Feb 6:00 AM. Itinerary: you stay in Jodhpur 31 Jan – 2 Feb and leave at 12 PM on 2 Feb (see the Alternative leg below). Decide which is right.'),
-    B('train', 'Falna', 'Jaipur', '2027-02-03', '09:17', '2027-02-03', '14:40', 1350, '⚠️ CONFLICT with your itinerary. Train list: SBIB BSB Express, AC 3 Tier ₹675 (assumed per person), 3 Feb 9:17 → 14:40. Itinerary: you are at Jawai until 5 Feb, leaving at 10:13 AM and reaching Jaipur at 17:45 on 5 Feb (see the Alternative leg below).'),
-    B('cab', 'Jodhpur', 'Jawai', '2027-02-02', '12:00', '2027-02-02', '15:00', 0, 'ALTERNATIVE, from your itinerary: leave Jodhpur 12 PM, reach Jawai 3 PM on 2 Feb. Mode not stated – assumed a road transfer. Change the status from “Alternative” to “Not booked” if this is the real plan (and delete the Jodhpur → Falna train).', 'both', { status: 'option' }),
-    B('train', 'Jawai', 'Jaipur', '2027-02-05', '10:13', '2027-02-05', '17:45', 0, 'ALTERNATIVE, from your itinerary: leave Jawai 10:13 AM, reach Jaipur 17:45 on 5 Feb (hotel Rameshwaram that night). Train from Falna assumed – add the train name/fare. Make it “Not booked” if this is the real plan (and delete the Falna → Jaipur 3 Feb train).', 'both', { status: 'option' }),
-    B('flight', 'Jaipur', 'Jammu', '2027-02-07', '15:15', '2027-02-07', '20:00', 5784, 'YOUR flight home, Sun 7 Feb (your notes say “7th Jan (Sun)” – a Sunday only fits 7 Feb). 3:15 PM → 8 PM. Prices in your notes: AED 248 (Skyscanner) · AED 241 (MakeMyTrip). Cost shown = AED 241 × 24 = ₹5,784, assumed for one person. 4h45 is long for this route – check if it connects.', '0'),
-    B('flight', 'Jaipur', 'Mumbai', '2027-02-07', '08:30', '2027-02-07', '10:30', 0, 'HER flight home, leg 1. Your notes say “08:3AM – 10:30AM” – I read it as 08:30; please confirm. Add the fare.', '1'),
-    B('flight', 'Mumbai', 'Dubai', '2027-02-07', '15:50', '2027-02-07', '17:55', 0, 'HER flight home, leg 2. Two options in your notes: 15:50 → 17:55 (shown here) or 16:25 → 18:35 (see the Alternative below). Arrival is Dubai time. Add the fare.', '1', { arrTz: '+04:00' }),
-    B('flight', 'Mumbai', 'Dubai', '2027-02-07', '16:25', '2027-02-07', '18:35', 0, 'ALTERNATIVE for her: 16:25 → 18:35 (Dubai time). Make it “Not booked” if you prefer this flight and delete the 15:50 one.', '1', { arrTz: '+04:00', status: 'option' })
-  ];
-
-  const H = (name, city, ci, co, status, cost, notes) => ({ id: id(), name, city, checkin: ci, checkout: co, status, veg: 'unknown', cost, ref: '', phone: '', notes });
-  const sh = 'Shortlisted. Price from your notes – I assumed it is the total for the stay, not per night. ';
-  S.stays = [
-    H('Fab Hotel Pink Cozzy', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2372, sh),
-    H('Vinayak Guest House', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2321, sh),
-    H('Hotel Rameshwaram', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2268, sh + 'You also listed this hotel for 5 Feb.'),
-    H('Hotel Hanumat Palace', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2463, sh),
-    H('Hotel Vivo International', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1160, sh + 'Train arrives 06:15 – ask about early check-in.'),
-    H('Little Prince Guest House and Homestay', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1044, sh + 'Train arrives 06:15 – ask about early check-in.'),
-    H('Hotel Jaswant Bhawan', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1890, sh + 'Your notes spell it “Jaswant Bahwan”. Train arrives 06:15 – ask about early check-in.'),
-    H('Rose Merry Guesthouse', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 536, sh + 'Train arrives 06:15 – ask about early check-in.'),
-    H('Karina Art Home Stay', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1318, sh + 'Train arrives 06:15 – ask about early check-in.'),
-    H('Iora Guest House', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 2982, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
-    H('Royal House', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 1254, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
-    H('Jungle Lodge', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 2520, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
-    H('Heaven Café and Hotel', 'Phulera', '2027-01-27', '2027-01-28', 'pending', 1200, '₹1,200 per night (your notes). Arrive 13:18 on 27 Jan, night train 23:25 on 28 Jan. A cab to see the salt lake and nearby sights is ₹2,000 (added under Places).'),
-    H('Magic Heritage Camp', 'Jaisalmer', '2027-01-29', '2027-01-30', 'pending', 1262, '29 Jan, 1 night, ₹1,262 (your notes). Train arrives 09:00.'),
-    H('Sonar Bhumi Hotel', 'Jaisalmer', '2027-01-30', '2027-01-31', 'pending', 840, '30 Jan, 1 night, ₹840 (your notes). You leave on the 06:30 train on 31 Jan.'),
-    H('House of Raghunath', 'Jodhpur', '2027-01-31', '2027-02-02', 'pending', 2876, '31 Jan – 2 Feb, 2 nights, ₹2,876 (assumed total). Train arrives 11:30. Itinerary says you leave at 12 PM on 2 Feb – but the train list has a Jodhpur → Falna train on 1 Feb at 6 AM.'),
-    H('Jawai Backpackers Hotel', 'Jawai', '2027-02-02', '2027-02-05', 'pending', 5355, '2–5 Feb, 3 nights, ₹5,355 (assumed total). Itinerary: reach 3 PM on 2 Feb, leave 10:13 AM on 5 Feb. Your notes spell it “Backpacerks”.'),
-    H('Hotel Rameshwaram', 'Jaipur', '2027-02-05', '2027-02-07', 'pending', 1260, '5–7 Feb (Fri–Sun). ₹1,260 is what your notes list – the same hotel was ₹2,268 for 2 nights earlier, so this may be one night only. Check. Reach Jaipur 17:45 on 5 Feb. Flights leave on 7 Feb.')
-  ];
-
-  const P = (name, category, city, lat, lng, veg, notes, o = {}) => ({ id: id(), name, category, city, lat, lng, date: '', time: '', veg, notes, cost: 0, tix: 'gate', plan: 'yes', visited: false, ...o });
-  const AP = ' Pin is approximate – Edit → Find on map to fix.';
-  const OPT = { plan: 'idea' }; // “Idea / maybe” = optional: shown in the plan, not counted in the budget
-  S.places = [
-    // ---- from your itinerary ----
-    P('Raptor Safari – Jorbeer Conservation Reserve', 'safari', 'Bikaner', '', '', 'unknown', 'From your itinerary: “CHECK” – https://jorbeer.com/vinayak-guest-house/ – DR SOLANKI. You are in Bikaner 23 Jan 06:15 → 24 Jan 22:30. Pin not set – Edit → Find on map.', { tix: 'tobook' }),
-    P('Sambhar Salt Lake – cab trip from Phulera', 'nature', 'Phulera', 26.9086, 75.1887, 'unknown', 'From your itinerary: ₹2,000 for a cab to see the salt lake and nearby sights. You are in Phulera 27 Jan 13:18 → 28 Jan night train 23:25.' + AP, { cost: 2000 }),
-    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your itinerary just says “SAFARI -”. Add the name, price and date when you know.'),
-    // ---- your places list, placed in the city/dates of your itinerary ----
-    P('Salasar Balaji Mandir', 'temple', 'Jaipur', 27.7228, 74.7108, 'unknown', 'Jaipur stay 20–22 Jan. Salasar is a long drive from Jaipur (roughly 3 hours each way) – plan a full day.' + AP, { date: '2027-01-21', time: '07:00' }),
-    P('Sariska Tiger Reserve – tiger safari', 'safari', 'Sariska', 27.326, 76.42, 'unknown', 'Day trip from Jaipur (stay 20–22 Jan). Your train leaves Jaipur 23:45 on 22 Jan, so an afternoon safari fits that day. Safari slots and permits need booking ahead.' + AP, { date: '2027-01-22', time: '15:00', tix: 'tobook' }),
-    P('Karni Mata Temple, Deshnok', 'temple', 'Bikaner', 27.7907, 73.3419, 'unknown', 'Bikaner stay 23–24 Jan (arrive 06:15 on 23 Jan).', { date: '2027-01-23', time: '15:00' }),
-    P('Keoladeo National Park (birdwatching)', 'nature', 'Bharatpur', 27.1667, 77.5167, 'unknown', 'Bharatpur stay 25–27 Jan (arrive 07:25 on 25 Jan, leave 08:10 on 27 Jan). Best at early morning.', { date: '2027-01-26', time: '06:30' }),
-    P('Khichan – seasonal migratory birdwatching', 'nature', 'Khichan', 27.17, 72.4, 'unknown', 'Not an itinerary stop – Khichan (near Phalodi) lies between Jaisalmer and Jodhpur. Birds are seasonal, so check it is the right time. Pick a day or skip.' + AP),
-    P('Jaisalmer Fort & Jain Temples', 'fort', 'Jaisalmer', 26.9127, 70.9128, 'unknown', 'Jaisalmer stay 29–31 Jan (arrive 09:00 on 29 Jan).', { date: '2027-01-29', time: '11:00' }),
-    P('Patwon Ki Haveli (optional)', 'museum', 'Jaisalmer', 26.916, 70.917, 'unknown', 'Optional. Jaisalmer stay 29–31 Jan.' + AP, { date: '2027-01-29', time: '14:30', ...OPT }),
-    P('Gadisar Lake (optional)', 'nature', 'Jaisalmer', 26.9101, 70.914, 'unknown', 'Optional. Jaisalmer stay 29–31 Jan.', { date: '2027-01-29', time: '17:00', ...OPT }),
-    P('Bada Bagh', 'temple', 'Jaisalmer', 26.96, 70.93, 'unknown', 'Jaisalmer stay 29–31 Jan.' + AP, { date: '2027-01-30', time: '09:00' }),
-    P('Kuldhara', 'temple', 'Jaisalmer', 26.8137, 70.7889, 'unknown', 'Jaisalmer stay 29–31 Jan.', { date: '2027-01-30', time: '13:00' }),
-    P('Sam Sand Dunes – camel ride, sunset, cultural programme', 'dunes', 'Jaisalmer', 26.8333, 70.5167, 'unknown', 'Jaisalmer stay 29–31 Jan. Reach for sunset; price for camel ride and programme is agreed locally.', { date: '2027-01-30', time: '16:30' }),
-    P('Osiyan Mata Mandir', 'temple', 'Osiyan', 26.7167, 72.9167, 'unknown', 'Day trip from Jodhpur (stay 31 Jan – 2 Feb per your itinerary; the train list differs – see Transport).' + AP, { date: '2027-02-01', time: '09:00' }),
-    P('Nakoda Ji Jain Mandir', 'temple', 'Nakoda Ji', 25.78, 72.26, 'unknown', 'Stop between Jodhpur and Jawai on 2 Feb (you leave Jodhpur 12:00 and reach Jawai 15:00 – check the timing works).' + AP, { date: '2027-02-02', time: '12:00' }),
-    P('Jawai – nature & birdwatching areas', 'nature', 'Jawai', 25.12, 73.15, 'unknown', 'Jawai stay 2–5 Feb.' + AP, { date: '2027-02-03', time: '07:00' }),
-    P('Jawai Leopard Safari', 'safari', 'Jawai', 25.12, 73.15, 'unknown', 'Jawai stay 2–5 Feb. Safaris are arranged through the hotel.' + AP, { date: '2027-02-03', time: '16:30', tix: 'tobook' }),
-    P('Parshuram Mahadev Temple (near Sadri)', 'temple', 'Sadri', 25.17, 73.55, 'unknown', 'Near Sadri, a day trip from Jawai (stay 2–5 Feb).' + AP, { date: '2027-02-04', time: '08:00' }),
-    P('Kumbhalgarh Fort', 'fort', 'Udaipur', 25.1528, 73.5871, 'unknown', 'Listed under Udaipur in your places list. Not an itinerary stop – Kumbhalgarh is near Jawai/Sadri, so it fits a day trip from Jawai (stay 2–5 Feb).', { date: '2027-02-04', time: '11:30' }),
-    P('Kumbhalgarh Wildlife Sanctuary – safari (optional)', 'safari', 'Udaipur', 25.15, 73.55, 'unknown', 'Optional safari, same area as Kumbhalgarh Fort.' + AP, { date: '2027-02-04', time: '16:00', ...OPT }),
-    P('Temple darshan stops (en route)', 'temple', 'En route', '', '', 'unknown', 'Wherever practical along the way – no fixed place or date.', { ...OPT })
-  ];
+  S.trip = { ...S.trip, ...d.trip };
+  const n0 = Date.now(), stamp = auto ? 1 : n0 + 1; // first-run copy is stamped 'oldest' so anything either of you edits always wins on sync
+  COLS.forEach(c => { S[c] = (d[c] || []).map((it, i) => ({ ...it, _u: stamp, _o: it._o ?? n0 + i })); });
   S.expenses = [];
-  // only what is in your two documents (no packing lists, no extra sightseeing ideas)
-  const n0 = Date.now(), K = text => ({ id: id(), group: 'todo', text, who: 'both', due: '', done: false, _u: n0, _o: n0 + (seedN++) });
-  S.tasks = [K('Choose one hotel each in Jaipur, Bikaner and Bharatpur (Hotels → ✓ Choose)'), K('Check the Raptor Safari at Jorbeer Conservation Reserve with Dr Solanki (your note says “CHECK”)'), K('Fill in the Phulera safari details (your notes only say “SAFARI -”)'), K('Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary differ (see the “Alternative” legs on Transport)')];
-  S.contacts = [{ id: id(), name: 'Dr Solanki', role: 'Jorbeer raptor safari (from your notes)', phone: '', notes: 'https://jorbeer.com/vinayak-guest-house/ – add his phone number', _u: n0, _o: n0 }];
-  const stamp = auto ? 1 : Date.now() + 1; // first-run copy is stamped 'oldest' so anything either of you edits always wins on sync
-  COLS.forEach(c => S[c].forEach(it => { it._u = stamp; }));
   S.trip._u = stamp;
-  seeding = false;
   save(); UI.tab = 'home'; render(); if (!auto) toast('Your Rajasthan trip is loaded');
 }
 
+/* ---------- passcode lock ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function isUnlocked() {
+  try { if (sessionStorage.getItem('safar.pass')) return true; const t = +localStorage.getItem('safar.unlocked') || 0; return t > 0 && Date.now() - t < 30 * 864e5 && !!localStorage.getItem('safar.pass.ok'); } catch { return false; }
+}
+function lockScreen() {
+  return new Promise(res => {
+    const el = $('#lock'), f = el.querySelector('form'), inp = f.elements.pass, err = $('#lockErr'), btn = f.querySelector('button'), chk = f.elements.remember;
+    el.hidden = false; document.body.classList.add('locked'); let tries = 0;
+    f.onsubmit = async e => {
+      e.preventDefault(); const p = inp.value.trim().toLowerCase(); if (!p) return;
+      btn.disabled = true; err.textContent = 'Checking…';
+      try {
+        await decryptTrip(p);
+        try { sessionStorage.setItem('safar.pass', p); if (chk.checked) { localStorage.setItem('safar.unlocked', Date.now()); localStorage.setItem('safar.pass.ok', '1'); } } catch { }
+        el.hidden = true; document.body.classList.remove('locked'); res(true);
+      } catch (x) {
+        tries++; err.textContent = x && x.message === 'missing' ? 'Cannot load the lock file – check your connection.' : 'Wrong passcode. Try again.';
+        await sleep(Math.min(tries, 5) * 700); btn.disabled = false; inp.select();
+      }
+    };
+    inp.focus();
+  });
+}
+function lockNow() { try { sessionStorage.removeItem('safar.pass'); localStorage.removeItem('safar.unlocked'); localStorage.removeItem('safar.pass.ok'); } catch { } location.reload(); }
+
 /* ---------- boot ---------- */
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (map) map.invalidateSize(); }, 150); });
-if (!localStorage.getItem('safar.state')) loadSample(true); // first open: start with the Rajasthan trip, ready to edit
-else render();
-if (firebaseConfig && !localStorage.getItem('safar.code')) setTimeout(askCode, 600);
-startCloud();
+async function startApp() {
+  if (!isUnlocked()) await lockScreen();
+  if (!localStorage.getItem('safar.state')) await loadSample(true); // first open: start with the Rajasthan trip, ready to edit
+  else render();
+  if (firebaseConfig && !localStorage.getItem('safar.code')) setTimeout(askCode, 600);
+  startCloud();
+}
+const appReady = startApp();
 if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { });
