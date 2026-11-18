@@ -4,7 +4,8 @@ import { firebaseConfig } from './firebase-config.js';
 /* ---------- helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const uid = () => Math.random().toString(36).slice(2, 10);
+let seedN = 0, seeding = false;
+const uid = () => seeding ? 'r27-' + (++seedN) : Math.random().toString(36).slice(2, 10);
 const inr = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
 const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const toDate = d => new Date(d + 'T00:00:00');
@@ -18,8 +19,8 @@ const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('
 const MODES = [['train', '🚆 Train'], ['bus', '🚌 Bus'], ['flight', '✈️ Flight'], ['cab', '🚗 Cab / Car'], ['other', '🧭 Other']];
 const MODE_ICO = { train: '🚆', bus: '🚌', flight: '✈️', cab: '🚗', other: '🧭' };
 const MODE_COLOR = { train: '#2f6fb0', bus: '#2f8f4e', flight: '#8e44ad', cab: '#d98a00', other: '#7a6a58' };
-const BSTAT = [['notbooked', 'Not booked'], ['pending', 'Planned / pending'], ['waiting', 'Waitlist'], ['rac', 'RAC'], ['confirmed', 'Confirmed ✓'], ['cancelled', 'Cancelled']];
-const SSTAT = [['notbooked', 'Not booked'], ['pending', 'Pending'], ['booked', 'Booked ✓'], ['cancelled', 'Cancelled']];
+const BSTAT = [['notbooked', 'Not booked'], ['pending', 'Planned / pending'], ['waiting', 'Waitlist'], ['rac', 'RAC'], ['confirmed', 'Confirmed ✓'], ['cancelled', 'Cancelled'], ['option', 'Alternative (not in plan)']];
+const SSTAT = [['shortlist', 'Shortlisted option'], ['notbooked', 'Not booked'], ['pending', 'Pending'], ['booked', 'Booked ✓'], ['cancelled', 'Cancelled']];
 const VEG = [['unknown', 'Not checked'], ['pure', 'Pure veg 🌱'], ['options', 'Veg options available'], ['non', 'Mostly non-veg']];
 const VEG_L = { pure: 'Pure veg 🌱', options: 'Veg options', non: 'Mostly non-veg', unknown: '' };
 const CATS = [['fort', '🏰 Fort / Palace'], ['safari', '🐆 Safari'], ['dunes', '🏜️ Desert / Dunes'], ['temple', '🛕 Temple / Heritage'], ['nature', '🌅 Lake / Nature'], ['market', '🛍️ Market / Shopping'], ['food', '🍛 Food'], ['museum', '🏛️ Museum'], ['other', '📍 Other']];
@@ -29,11 +30,14 @@ const ECATS = [['food', '🍛 Food & drinks'], ['stay', '🏨 Stay'], ['transpor
 const TIX = [['gate', 'Pay at gate / none needed'], ['tobook', 'Need to book ahead'], ['booked', 'Booked ✓']];
 const GROUPS = [['pack', '🎒 Packing'], ['docs', '📄 Documents & IDs'], ['todo', '✅ To-do before & during']];
 const COLS = ['bookings', 'stays', 'places', 'expenses', 'tasks', 'contacts'];
+const TZS = [['+05:30', 'India time (IST)'], ['+04:00', 'Dubai time (GST)']];
+const PLANS = [['yes', 'Planned'], ['idea', '💡 Idea / maybe']];
 
 const CITY = {
   'sam sand dunes': [26.8333, 70.5167], 'sam dunes': [26.8333, 70.5167], 'sawai madhopur': [26.0173, 76.5026], 'ranthambore': [26.0173, 76.5026],
   'mount abu': [24.5926, 72.7156], 'dubai': [25.2532, 55.3657], 'jammu': [32.7266, 74.857], 'srinagar': [34.0837, 74.7973],
   'delhi': [28.6139, 77.209], 'jaipur': [26.9124, 75.7873], 'jodhpur': [26.2389, 73.0243], 'jaisalmer': [26.9157, 70.9083],
+  'bharatpur': [27.2152, 77.503], 'phulera': [26.8739, 75.2405], 'falna': [25.2333, 73.2333], 'jawai': [25.12, 73.15], 'surat': [21.1702, 72.8311], 'mumbai': [19.076, 72.8777],
   'udaipur': [24.5854, 73.7125], 'pushkar': [26.4876, 74.5518], 'ajmer': [26.4499, 74.6399], 'bikaner': [28.0229, 73.3119],
   'chittorgarh': [24.8887, 74.6269], 'kumbhalgarh': [25.1528, 73.5871]
 };
@@ -72,7 +76,9 @@ const sig = s => COLS.map(c => (s[c] || []).map(i => i.id + ':' + (i._u || 0)).s
 
 /* ---------- cloud sync (optional) ---------- */
 let cloud = null, unsub = null, fb = null;
-const badge = t => { $('#syncBadge').textContent = t; };
+let syncTimer = null;
+const badge = (t, why) => { const b = $('#syncBadge'); b.textContent = t; b.title = why || 'Tap to sync now'; };
+const syncFail = e => { console.error(e); const c = (e && e.code) || ''; badge(c === 'permission-denied' ? 'No access' : 'Offline', c ? c + ' – ' + (e.message || '') + (c === 'permission-denied' ? ' (publish firestore.rules, enable Anonymous sign-in)' : '') : 'Cannot reach the cloud – changes are saved on this device and will sync later'); };
 
 async function startCloud() {
   const code = localStorage.getItem('safar.code');
@@ -85,26 +91,48 @@ async function startCloud() {
       const [app, auth, fs] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
       const a = app.initializeApp(firebaseConfig);
       await auth.signInAnonymously(auth.getAuth(a));
-      fb = { db: fs.getFirestore(a), doc: fs.doc, setDoc: fs.setDoc, onSnapshot: fs.onSnapshot };
+      let db; try { db = fs.initializeFirestore(a, { experimentalAutoDetectLongPolling: true }); } catch { db = fs.getFirestore(a); }
+      fb = { db, doc: fs.doc, getDocFromServer: fs.getDocFromServer, runTransaction: fs.runTransaction, onSnapshot: fs.onSnapshot };
     }
     const ref = fb.doc(fb.db, 'trips', code);
     cloud = { ref };
     if (unsub) unsub();
     unsub = fb.onSnapshot(ref, snap => {
       if (!snap.exists()) { pushCloud(); return; }
-      if (snap.metadata.hasPendingWrites) return;
-      let remote; try { remote = JSON.parse(snap.data().state); } catch { return; }
-      const merged = merge(S, remote);
-      if (sig(merged) !== sig(S)) { S = merged; localSave(); render(); }
-      if (sig(merged) !== sig(remote)) pushCloud();
-      badge('Synced ✓');
-    }, () => badge('Offline'));
-  } catch (e) { console.error(e); badge('Offline'); }
+      applyRemote(snap);
+    }, e => { syncFail(e); clearTimeout(syncTimer); syncTimer = setTimeout(startCloud, 15000); });
+  } catch (e) { syncFail(e); clearTimeout(syncTimer); syncTimer = setTimeout(startCloud, 15000); }
 }
-function pushCloud() {
+function applyRemote(snap) {
+  let remote; try { remote = JSON.parse(snap.data().state); } catch { return; }
+  const merged = merge(S, remote);
+  if (sig(merged) !== sig(S)) { S = merged; localSave(); render(); }
+  if (sig(merged) !== sig(remote)) pushCloud();
+  badge('Synced ✓', 'Last synced ' + new Date().toLocaleTimeString() + ' – tap to sync now');
+}
+async function pullCloud() {
+  if (!cloud || !fb) return startCloud();
+  try { badge('Syncing…'); const snap = await fb.getDocFromServer(cloud.ref); if (snap.exists()) applyRemote(snap); else pushCloud(); } catch (e) { syncFail(e); }
+}
+let pushing = false, again = false;
+async function pushCloud() {
   if (!cloud || !fb) return;
-  fb.setDoc(cloud.ref, { state: JSON.stringify(S) }).then(() => badge('Synced ✓')).catch(() => badge('Offline'));
+  if (pushing) { again = true; return; }
+  pushing = true; let m = null;
+  try {
+    // read-merge-write in one transaction so we never overwrite what the other person just saved
+    await fb.runTransaction(fb.db, async tx => {
+      const snap = await tx.get(cloud.ref); m = S;
+      if (snap.exists()) { try { m = merge(S, JSON.parse(snap.data().state)); } catch { } }
+      tx.set(cloud.ref, { state: JSON.stringify(m) });
+    });
+    const nm = merge(S, m); if (sig(nm) !== sig(S)) { S = nm; localSave(); render(); }
+    badge('Synced ✓', 'Last synced ' + new Date().toLocaleTimeString() + ' – tap to sync now');
+  } catch (e) { syncFail(e); } finally { pushing = false; if (again) { again = false; pushCloud(); } }
 }
+['online', 'focus'].forEach(ev => window.addEventListener(ev, () => { if (cloud) pullCloud(); }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cloud) pullCloud(); });
+setInterval(() => { if (cloud && !document.hidden) pullCloud(); }, 60000);
 function askCode() {
   if (!firebaseConfig) { toast('Add your Firebase config in firebase-config.js to sync'); return; }
   const c = prompt('Shared trip code – use the SAME code on both phones (min 8 chars), e.g. rajasthan-nov26-k7x9q2', localStorage.getItem('safar.code') || '');
@@ -125,8 +153,12 @@ const people = () => S.trip.people || ['Me', 'Her'];
 
 function events() {
   const ev = [];
-  S.bookings.filter(b => b.date).forEach(b => ev.push({ date: b.date, time: b.time || '', kind: 'booking', id: b.id, ico: MODE_ICO[b.mode] || '🧭', title: `${b.from} → ${b.to}`, sub: [(b.who === '0' || b.who === '1') && '👤 ' + people()[+b.who], b.ref && 'Ref ' + b.ref, b.cost && inr(b.cost)].filter(Boolean).join(' · '), stl: label(BSTAT, b.status), pill: pill(b.status, label(BSTAT, b.status)) }));
-  S.stays.forEach(h => {
+  S.bookings.filter(b => b.date && b.status !== 'option').forEach(b => {
+    const arrT = b.arrTime ? (b.arrDate && b.arrDate !== b.date ? fmtS(b.arrDate) + ' ' : '') + b.arrTime : '';
+    ev.push({ date: b.date, time: b.time || '', kind: 'booking', id: b.id, ico: MODE_ICO[b.mode] || '🧭', title: `${b.from} → ${b.to}`, sub: [(b.who === '0' || b.who === '1') && '👤 ' + people()[+b.who], arrT && 'arrives ' + arrT, b.ref && 'Ref ' + b.ref, b.cost && inr(b.cost)].filter(Boolean).join(' · '), stl: label(BSTAT, b.status), pill: pill(b.status, label(BSTAT, b.status)), timer: timerHTML(b) });
+    if (b.arrDate && b.arrDate !== b.date && b.status !== 'cancelled') ev.push({ date: b.arrDate, time: b.arrTime || '', kind: 'booking', id: b.id, ico: '🏁', title: 'Arrive ' + b.to, sub: 'from ' + b.from + (b.arrTime ? '' : ''), stl: label(BSTAT, b.status), pill: '' });
+  });
+  S.stays.filter(h => h.status !== 'shortlist').forEach(h => {
     if (h.checkin) ev.push({ date: h.checkin, time: '14:00', kind: 'stay', id: h.id, ico: '🏨', title: 'Check-in: ' + h.name, sub: [h.city, VEG_L[h.veg]].filter(Boolean).join(' · '), stl: label(SSTAT, h.status), pill: pill(h.status, label(SSTAT, h.status)) });
     if (h.checkout) ev.push({ date: h.checkout, time: '11:00', kind: 'stay', id: h.id, ico: '🧳', title: 'Check-out: ' + h.name, sub: h.city || '', pill: '' });
   });
@@ -140,6 +172,8 @@ const FORMS = {
     { k: 'mode', l: 'Type', t: 'select', o: MODES, def: 'train', w: 'h' }, { k: 'status', l: 'Status', t: 'select', o: BSTAT, def: 'notbooked', w: 'h' },
     { k: 'from', l: 'From', req: 1, w: 'h' }, { k: 'to', l: 'To', req: 1, w: 'h' },
     { k: 'date', l: 'Date', t: 'date', req: 1, w: 'h' }, { k: 'time', l: 'Departure time (local)', t: 'time', w: 'h' },
+    { k: 'arrDate', l: 'Arrival date (next day for night trains)', t: 'date', w: 'h' }, { k: 'arrTime', l: 'Arrival time – starts the timer', t: 'time', w: 'h' },
+    { k: 'depTz', l: 'Departure time zone', t: 'select', o: TZS, def: '+05:30', w: 'h' }, { k: 'arrTz', l: 'Arrival time zone', t: 'select', o: TZS, def: '+05:30', w: 'h' },
     { k: 'who', l: 'Who is travelling?', t: 'select', o: () => [['both', 'Both of us'], ['0', people()[0]], ['1', people()[1]]], def: 'both', w: 'h' }, { k: 'cost', l: 'Total cost (₹)', t: 'number', w: 'h' },
     { k: 'ref', l: 'PNR / ticket / booking ref' }, { k: 'link', l: 'Booking link (optional)' },
     { k: 'notes', l: 'Notes (train no., seat, coach, who is travelling…)', t: 'textarea' }] },
@@ -154,7 +188,7 @@ const FORMS = {
     { k: 'name', l: 'Place name', req: 1 }, { k: 'city', l: 'City / area (helps the map)' },
     { k: 'date', l: 'Planned date', t: 'date', w: 'h' }, { k: 'time', l: 'Time', t: 'time', w: 'h' },
     { k: 'category', l: 'Category', t: 'select', o: CATS, def: 'fort', w: 'h' }, { k: 'veg', l: 'Vegetarian food?', t: 'select', o: VEG, def: 'unknown', w: 'h' },
-    { k: 'tix', l: 'Ticket / booking needed?', t: 'select', o: TIX, def: 'gate' }, { k: 'cost', l: 'Tickets / entry cost for both (₹)', t: 'number' }, { k: 'lat', l: 'Latitude', t: 'number', w: 'h' }, { k: 'lng', l: 'Longitude', t: 'number', w: 'h' },
+    { k: 'plan', l: 'In the plan?', t: 'select', o: PLANS, def: 'yes', w: 'h' }, { k: 'tix', l: 'Ticket / booking needed?', t: 'select', o: TIX, def: 'gate', w: 'h' }, { k: 'cost', l: 'Tickets / entry cost for both (₹)', t: 'number' }, { k: 'lat', l: 'Latitude', t: 'number', w: 'h' }, { k: 'lng', l: 'Longitude', t: 'number', w: 'h' },
     { k: 'notes', l: 'Notes (timings, ticket, tips from her…)', t: 'textarea' }],
     extra: '<button type="button" class="btn ghost small" id="geo" style="margin-top:8px">📍 Find on map automatically</button>' },
   expense: { title: 'Expense', list: 'expenses', fields: [
@@ -214,6 +248,7 @@ function openForm(kind, item) {
     F.fields.forEach(f => { let x = fd.get(f.k); if (f.t === 'number') x = x === '' || x === null ? '' : Number(x); out[f.k] = x; });
     if (F.single) {
       const { p0, p1, ...rest } = out;
+      if (rest.start && rest.end && rest.end < rest.start) { toast('End date is before the start date'); return; }
       S.trip = { ...S.trip, ...rest, people: [p0 || 'Me', p1 || 'Her'], _u: Date.now() };
     } else if (item) { Object.assign(item, out); touch(item); }
     else { const n = Date.now(); S[F.list].push({ id: uid(), ...out, _u: n, _o: n, ...(kind === 'task' ? { done: false } : {}) }); }
@@ -230,27 +265,27 @@ async function geocode(q) {
 /* ---------- views ---------- */
 const empty = (msg, btn = '') => `<div class="empty">${msg}<div style="margin-top:12px">${btn}</div></div>`;
 const addBtn = (kind, text) => `<button class="btn small" data-act="add" data-kind="${kind}">＋ ${text}</button>`;
-const sampleBtn = '<button class="btn ghost" data-act="sample">✨ Load Rajasthan sample trip</button>';
+const sampleBtn = '<button class="btn ghost" data-act="sample">✨ Load our Rajasthan trip (Jan–Feb 2027)</button>';
 
-function totals() {
+function totals() {  // budget: skips cancelled / alternative / ideas; for shortlisted hotels counts the cheapest option
   const rate = +S.trip.aedRate || 24;
   const spent = S.expenses.reduce((a, e) => a + (+e.amount || 0) * (e.currency === 'AED' ? rate : 1), 0);
-  const live = x => x.status !== 'cancelled';
+  const live = x => !['cancelled', 'shortlist', 'option'].includes(x.status);
   const booked = S.bookings.filter(b => b.status === 'confirmed').reduce((a, b) => a + (+b.cost || 0), 0) + S.stays.filter(h => h.status === 'booked').reduce((a, h) => a + (+h.cost || 0), 0);
-  const planned = S.bookings.filter(b => live(b) && b.status !== 'confirmed').reduce((a, b) => a + (+b.cost || 0), 0) + S.stays.filter(h => live(h) && h.status !== 'booked').reduce((a, h) => a + (+h.cost || 0), 0) + S.places.filter(p => !p.visited).reduce((a, p) => a + (+p.cost || 0), 0);
+  const planned = S.bookings.filter(b => live(b) && b.status !== 'confirmed').reduce((a, b) => a + (+b.cost || 0), 0) + S.stays.filter(h => live(h) && h.status !== 'booked').reduce((a, h) => a + (+h.cost || 0), 0) + S.places.filter(p => !p.visited && p.plan !== 'idea').reduce((a, p) => a + (+p.cost || 0), 0) + shortlistCost();
   return { spent, booked, planned, budget: +S.trip.budget || 0, rate };
 }
 
 function viewHome() {
   const t = S.trip, today = todayISO();
-  const nb = S.bookings.filter(b => b.status !== 'cancelled'), cb = nb.filter(b => b.status === 'confirmed').length;
-  const ns = S.stays.filter(h => h.status !== 'cancelled'), bs = ns.filter(h => h.status === 'booked').length;
+  const nb = S.bookings.filter(b => !['cancelled', 'option'].includes(b.status)), cb = nb.filter(b => b.status === 'confirmed').length;
+  const ns = S.stays.filter(h => !['cancelled', 'shortlist'].includes(h.status)), bs = ns.filter(h => h.status === 'booked').length;
   const tot = totals(), used = tot.spent + tot.booked, pct = tot.budget ? Math.min(100, used / tot.budget * 100) : 0;
   let countdown = '';
   if (t.start) { const d = diffDays(today, t.start); countdown = d > 0 ? `<b>${d}</b> days to go` : (t.end && today > t.end ? 'Trip complete 🎉' : `Day <b>${1 - d}</b> of the trip`); }
   const todo = [
-    ...S.bookings.filter(b => !['confirmed', 'cancelled'].includes(b.status)).map(b => ({ date: b.date, kind: 'booking', id: b.id, ico: MODE_ICO[b.mode], t: `${b.from} → ${b.to}`, st: b.status, lab: label(BSTAT, b.status) })),
-    ...S.stays.filter(h => !['booked', 'cancelled'].includes(h.status)).map(h => ({ date: h.checkin, kind: 'stay', id: h.id, ico: '🏨', t: h.name, st: h.status, lab: label(SSTAT, h.status) }))
+    ...S.bookings.filter(b => !['confirmed', 'cancelled', 'option'].includes(b.status)).map(b => ({ date: b.date, kind: 'booking', id: b.id, ico: MODE_ICO[b.mode], t: `${b.from} → ${b.to}`, st: b.status, lab: label(BSTAT, b.status) })),
+    ...S.stays.filter(h => !['booked', 'cancelled', 'shortlist'].includes(h.status)).map(h => ({ date: h.checkin, kind: 'stay', id: h.id, ico: '🏨', t: h.name, st: h.status, lab: label(SSTAT, h.status) }))
   ].sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
   const next = events().filter(e => e.date >= today).slice(0, 4);
   return `
@@ -258,45 +293,66 @@ function viewHome() {
   <div class="grid2" style="margin-bottom:10px">
     <div class="stat"><span class="muted">🎫 Transport confirmed</span><b>${cb}/${nb.length}</b></div>
     <div class="stat"><span class="muted">🏨 Hotels booked</span><b>${bs}/${ns.length}</b></div>
-    <div class="stat"><span class="muted">📍 Places planned</span><b>${S.places.length}</b></div>
+    <div class="stat"><span class="muted">📍 Places planned</span><b>${S.places.filter(p => p.plan !== 'idea').length}</b></div>
     <div class="stat"><span class="muted">✅ Visited</span><b>${S.places.filter(p => p.visited).length}</b></div>
   </div>
   <div class="card"><div class="row"><h3>💰 Budget</h3><span class="muted">${inr(used)} of ${inr(tot.budget)}</span></div><div class="bar" style="margin-top:8px"><i class="${used > tot.budget ? 'over' : ''}" style="width:${pct}%"></i></div></div>
-  ${healthCard()}${todayCard()}${weatherCard()}
+  ${healthCard()}${todayCard()}${arrivalsCard()}${weatherCard()}
   ${!S.bookings.length && !S.stays.length && !S.places.length ? empty('Nothing planned yet. Start fresh or load an editable example.', sampleBtn) : ''}
   <div class="h2">⚠️ Still to book <span>${todo.length}</span></div>
   ${todo.length ? todo.map(x => `<div class="card"><div class="row"><div class="grow" data-act="edit" data-kind="${x.kind}" data-id="${x.id}" style="cursor:pointer"><b>${x.ico} ${esc(x.t)}</b><div class="muted">${fmt(x.date)}</div></div>${pill(x.st, x.lab)}</div></div>`).join('') : '<div class="muted" style="padding:4px 2px">All booked. 🎉</div>'}
   <div class="h2">Coming up</div>
-  ${next.length ? next.map(e => `<div class="card"><div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer;border:0"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b><div class="muted">${fmt(e.date)}${e.time && e.kind === 'booking' ? ' · ' + e.time : ''}</div></div>${e.pill}</div></div>`).join('') : '<div class="muted" style="padding:4px 2px">Nothing upcoming.</div>'}
+  ${next.length ? next.map(e => `<div class="card"><div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer;border:0"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b><div class="muted">${fmt(e.date)}${e.time && e.kind === 'booking' ? ' · ' + e.time : ''}</div>${e.timer ? `<div style="margin-top:3px">${e.timer}</div>` : ''}</div>${e.pill}</div></div>`).join('') : '<div class="muted" style="padding:4px 2px">Nothing upcoming.</div>'}
   <div class="h2">Settings</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn ghost small" data-act="edit" data-kind="trip">⚙️ Trip settings</button>
     <button class="btn ghost small" data-act="code">🔗 Sync code</button>
+    <button class="btn ghost small" data-act="syncnow">🔄 Sync now</button>
     <button class="btn ghost small" data-act="ics">📅 Add to calendar</button>
     <button class="btn ghost small" data-act="share">📤 Share summary</button>
     <button class="btn ghost small" data-act="print">🖨️ Print</button>
     <button class="btn ghost small" data-act="backup">⬇️ Backup</button>
     <button class="btn ghost small" data-act="restore">⬆️ Restore</button>
-    ${S.bookings.length || S.places.length ? '<button class="btn ghost small" data-act="sample">✨ Load sample</button>' : ''}
+    ${S.bookings.length || S.places.length ? '<button class="btn ghost small" data-act="sample">✨ Reload our Rajasthan trip</button>' : ''}
   </div>`;
 }
 
+function calendarHTML(ev, first, last) {
+  const t = S.trip, today = todayISO(), has = {};
+  ev.forEach(e => { has[e.date] = (has[e.date] || 0) + 1; });
+  let out = '', m = first.slice(0, 7) + '-01', g = 0;
+  while (m <= last && g++ < 14) {
+    const dt = toDate(m), lead = (dt.getDay() + 6) % 7, n = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    let cells = '<i></i>'.repeat(lead);
+    for (let k = 1; k <= n; k++) {
+      const d = m.slice(0, 8) + String(k).padStart(2, '0'), inTrip = t.start && t.end ? d >= t.start && d <= t.end : (d >= first && d <= last);
+      const cls = ['cal', inTrip ? 'in' : '', d === t.start || d === t.end ? 'edge' : '', d === today ? 'today' : '', has[d] ? 'has' : ''].join(' ');
+      cells += `<b class="${cls}" ${inTrip || has[d] ? `data-act="caljump" data-v="${d}"` : ''}>${k}${has[d] ? '<u></u>' : ''}</b>`;
+    }
+    out += `<div class="card calm"><h3>${dt.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</h3><div class="calg"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>${cells}</div></div>`;
+    m = addDays(m.slice(0, 7) + '-28', 4).slice(0, 7) + '-01';
+  }
+  return `<div class="calwrap">${out}</div><div class="muted" style="margin:2px 0 8px">Shaded = trip days · dot = something planned · tap a day to jump to it</div>`;
+}
 function viewPlan() {
   const ev = events();
   if (!ev.length) return empty('Your day-by-day plan appears here once you add dated bookings, stays or places.', sampleBtn);
-  const dates = ev.map(e => e.date), first = dates[0], last = dates[dates.length - 1], base = S.trip.start || first, today = todayISO();
+  const dates = ev.map(e => e.date), t = S.trip, base = t.start || dates[0], today = todayISO();
+  // the plan covers the TRIP dates (so changing them changes the plan), and stretches to include any item outside them
+  const first = [t.start, dates[0]].filter(Boolean).sort()[0], last = [t.end, dates[dates.length - 1]].filter(Boolean).sort().pop();
   let html = '', d = first, guard = 0;
-  while (d <= last && guard++ < 120) {
+  while (d <= last && guard++ < 400) {
     const items = ev.filter(e => e.date === d);
-    const stay = S.stays.filter(h => h.checkin && h.checkout && h.checkin < d && d < h.checkout);
+    const stay = S.stays.filter(h => h.status !== 'shortlist' && h.status !== 'cancelled' && h.checkin && h.checkout && h.checkin < d && d < h.checkout);
     const cities = [...new Set(items.filter(e => e.kind === 'place').map(e => S.places.find(p => p.id === e.id)?.city).filter(Boolean))].join(', ');
-    html += `<div class="day"><h4>${d === today ? '🟢 ' : ''}Day ${diffDays(base, d) + 1} · ${fmt(d)}${cities ? ' · ' + esc(cities) : ''}</h4>
-      ${items.map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}</div>${e.pill}</div>`).join('')}
+    const out = (t.start && d < t.start) || (t.end && d > t.end);
+    html += `<div class="day" id="day-${d}"><h4>${d === today ? '🟢 ' : ''}${out ? 'Outside trip dates' : 'Day ' + (diffDays(base, d) + 1)} · ${fmt(d)}${cities ? ' · ' + esc(cities) : ''}</h4>
+      ${items.map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}${e.timer ? `<div style="margin-top:3px">${e.timer}</div>` : ''}</div>${e.pill}</div>`).join('')}
       ${stay.map(h => `<div class="item"><div class="ico">🌙</div><div class="grow muted">Staying at ${esc(h.name)}</div></div>`).join('')}
       ${!items.length && !stay.length ? '<div class="muted">Free day – add something 🙂</div>' : ''}</div>`;
     d = addDays(d, 1);
   }
-  return `<div class="h2">Day-by-day <span>${addBtn('place', 'Place')}</span></div>${html}`;
+  return `<div class="h2">Calendar <span><button class="btn ghost small" data-act="edit" data-kind="trip">Change dates</button></span></div>${calendarHTML(ev, first, last)}<div class="h2">Day-by-day <span>${addBtn('place', 'Place')}</span></div>${html}`;
 }
 
 function viewBook() {
@@ -306,17 +362,17 @@ function viewBook() {
   return `
   <div class="h2">Transport <span>${addBtn('booking', 'Add')}</span></div>
   <div class="chips">${modes.map(([v, l]) => `<button class="chip ${UI.bookMode === v ? 'on' : ''}" data-act="bookmode" data-v="${v}">${l}</button>`).join('')}</div>
-  ${list.length ? list.map(b => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><h3>${MODE_ICO[b.mode]} ${esc(b.from)} → ${esc(b.to)} ${whoPill(b.who)}</h3><div class="muted">${fmt(b.date)}${b.time ? ' · ' + esc(b.time) : ''}${b.ref ? ' · Ref ' + esc(b.ref) : ''}${b.cost ? ' · ' + inr(b.cost) : ''}</div>${b.notes ? `<div class="muted">${esc(b.notes)}</div>` : ''}${b.link ? `<div style="margin-top:4px"><a href="${esc(b.link)}" target="_blank" rel="noopener">Open booking site ↗</a></div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(b.status, label(BSTAT, b.status))}${sel('booking', b.id, b.status, BSTAT)}</div></div></div>`).join('') : empty('No transport yet. Add trains, buses, flights and cabs.')}
+  ${list.length ? list.map(b => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><h3>${MODE_ICO[b.mode]} ${esc(b.from)} → ${esc(b.to)} ${whoPill(b.who)}</h3><div class="muted">${fmt(b.date)}${b.time ? ' · ' + esc(b.time) + tzNote(b.depTz) : ''}${arrText(b)}${b.ref ? ' · Ref ' + esc(b.ref) : ''}${b.cost ? ' · ' + inr(b.cost) : ''}</div>${timerHTML(b) ? `<div style="margin:5px 0">${timerHTML(b)}</div>` : ''}${b.notes ? `<div class="muted">${esc(b.notes)}</div>` : ''}${b.link ? `<div style="margin-top:4px"><a href="${esc(b.link)}" target="_blank" rel="noopener">Open booking site ↗</a></div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(b.status, label(BSTAT, b.status))}${sel('booking', b.id, b.status, BSTAT)}</div></div></div>`).join('') : empty('No transport yet. Add trains, buses, flights and cabs.')}
   <div class="h2">Hotels & stays <span>${addBtn('stay', 'Add')}</span></div>
-  ${S.stays.length ? [...S.stays].sort((a, b) => (a.checkin || '').localeCompare(b.checkin || '')).map(h => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="stay" data-id="${h.id}" style="cursor:pointer"><h3>🏨 ${esc(h.name)}</h3><div class="muted">${esc(h.city || '')} · ${fmtS(h.checkin)}${h.checkout ? ' → ' + fmtS(h.checkout) : ''}${h.cost ? ' · ' + inr(h.cost) : ''}</div><div style="margin-top:4px">${pill(h.veg === 'non' ? 'bad' : 'veg', VEG_L[h.veg])}${h.phone ? ` <a href="tel:${esc(h.phone)}">📞 ${esc(h.phone)}</a>` : ''}</div>${h.notes ? `<div class="muted">${esc(h.notes)}</div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(h.status, label(SSTAT, h.status))}${sel('stay', h.id, h.status, SSTAT)}</div></div></div>`).join('') : empty('No hotels yet.')}`;
+  ${S.stays.length ? [...S.stays].sort((a, b) => (a.checkin || '').localeCompare(b.checkin || '')).map(h => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="stay" data-id="${h.id}" style="cursor:pointer"><h3>🏨 ${esc(h.name)}</h3><div class="muted">${esc(h.city || '')} · ${fmtS(h.checkin)}${h.checkout ? ' → ' + fmtS(h.checkout) : ''}${h.cost ? ' · ' + inr(h.cost) : ''}</div><div style="margin-top:4px">${pill(h.veg === 'non' ? 'bad' : 'veg', VEG_L[h.veg])}${h.phone ? ` <a href="tel:${esc(h.phone)}">📞 ${esc(h.phone)}</a>` : ''}</div>${h.notes ? `<div class="muted">${esc(h.notes)}</div>` : ''}</div><div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${pill(h.status, label(SSTAT, h.status))}${h.status === 'shortlist' ? `<button class="btn small" data-act="choose" data-id="${h.id}">✓ Choose</button>` : ''}${sel('stay', h.id, h.status, SSTAT)}</div></div></div>`).join('') : empty('No hotels yet.')}`;
 }
 
 function viewPlaces() {
   const f = UI.placeFilter;
-  const filters = [['all', 'All'], ['veg', '🌱 Veg-friendly'], ['todo', 'Not visited'], ['nodate', 'No date yet'], ...CATS.slice(0, 5)];
-  const ok = p => f === 'all' || (f === 'veg' && ['pure', 'options'].includes(p.veg)) || (f === 'todo' && !p.visited) || (f === 'nodate' && !p.date) || p.category === f;
+  const filters = [['all', 'All'], ['veg', '🌱 Veg-friendly'], ['todo', 'Not visited'], ['nodate', 'No date yet'], ['ideas', '💡 Ideas'], ...CATS.slice(0, 5)];
+  const ok = p => f === 'all' || (f === 'veg' && ['pure', 'options'].includes(p.veg)) || (f === 'todo' && !p.visited) || (f === 'nodate' && !p.date && p.plan !== 'idea') || (f === 'ideas' && p.plan === 'idea') || p.category === f;
   const list = S.places.filter(ok).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
-  const card = p => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="place" data-id="${p.id}" style="cursor:pointer"><h3>${CAT_ICO[p.category] || '📍'} ${esc(p.name)}</h3><div class="muted">${p.date ? fmt(p.date) : 'No date yet'}${p.time ? ' · ' + esc(p.time) : ''}${p.city ? ' · ' + esc(p.city) : ''}${p.cost ? ' · 🎟️ ' + inr(p.cost) : ''}</div><div style="margin:4px 0">${pill(p.veg === 'non' ? 'bad' : 'veg', VEG_L[p.veg])} ${p.tix === 'tobook' ? pill('pending', 'Book ahead') : p.tix === 'booked' ? pill('booked', 'Ticket booked ✓') : ''} ${p.visited ? pill('visited', 'Visited ✓') : ''}</div>${p.notes ? `<div class="muted">${esc(p.notes)}</div>` : ''}</div>
+  const card = p => `<div class="card"><div class="row" style="align-items:flex-start"><div class="grow" data-act="edit" data-kind="place" data-id="${p.id}" style="cursor:pointer"><h3>${CAT_ICO[p.category] || '📍'} ${esc(p.name)}</h3><div class="muted">${p.date ? fmt(p.date) : 'No date yet'}${p.time ? ' · ' + esc(p.time) : ''}${p.city ? ' · ' + esc(p.city) : ''}${p.cost ? ' · 🎟️ ' + inr(p.cost) : ''}</div><div style="margin:4px 0">${pill(p.veg === 'non' ? 'bad' : 'veg', VEG_L[p.veg])} ${p.plan === 'idea' ? pill('maybe', '💡 Idea') : ''} ${p.tix === 'tobook' ? pill('pending', 'Book ahead') : p.tix === 'booked' ? pill('booked', 'Ticket booked ✓') : ''} ${p.visited ? pill('visited', 'Visited ✓') : ''}</div>${p.notes ? `<div class="muted">${esc(p.notes)}</div>` : ''}</div>
     <div style="display:flex;flex-direction:column;gap:6px"><button class="btn small ${p.visited ? 'ghost' : ''}" data-act="visit" data-id="${p.id}">${p.visited ? 'Undo' : '✓ Visited'}</button>${p.lat && p.lng ? `<a class="btn ghost small" style="text-decoration:none;text-align:center" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}">Open map</a>` : ''}</div></div></div>`;
   return `<div class="h2">Places to visit <span>${S.places.length}</span></div>
   <div class="chips">${filters.map(([v, l]) => `<button class="chip ${f === v ? 'on' : ''}" data-act="placefilter" data-v="${v}">${l}</button>`).join('')}</div>
@@ -340,14 +396,14 @@ function drawMap() {
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '© OpenStreetMap contributors' }).addTo(map);
   const day = UI.mapDay, all = day === 'all', pts = [];
   // transport routes
-  S.bookings.filter(b => b.status !== 'cancelled' && (all || b.date === day)).forEach(b => {
+  S.bookings.filter(b => b.status !== 'cancelled' && b.status !== 'option' && (all || b.date === day)).forEach(b => {
     const a = coordFor(b.from), c = coordFor(b.to); if (!a || !c) return;
     L.polyline([a, c], { color: MODE_COLOR[b.mode] || '#777', weight: 3, dashArray: '8 8', opacity: .85 }).addTo(map)
       .bindPopup(`<b>${MODE_ICO[b.mode]} ${esc(b.from)} → ${esc(b.to)}</b><br>${fmt(b.date)} ${esc(b.time || '')}<br>${esc(label(BSTAT, b.status))}`);
     [[a, b.from], [c, b.to]].forEach(([p, n]) => { L.circleMarker(p, { radius: 5, color: '#fff', weight: 2, fillColor: '#2b2118', fillOpacity: 1 }).addTo(map).bindTooltip(esc(n)); pts.push(p); });
   });
   // stays
-  S.stays.filter(h => h.status !== 'cancelled' && (all || (h.checkin <= day && (h.checkout ? day < h.checkout : day === h.checkin)))).forEach(h => {
+  S.stays.filter(h => h.status !== 'cancelled' && h.status !== 'shortlist' && (all || (h.checkin <= day && (h.checkout ? day < h.checkout : day === h.checkin)))).forEach(h => {
     const p = coordFor(h.city || h.name); if (!p) return;
     L.marker([p[0] + .012, p[1] + .012], { icon: L.divIcon({ className: '', html: '<div class="cityPin">🏨</div>', iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(map)
       .bindPopup(`<b>🏨 ${esc(h.name)}</b><br>${fmtS(h.checkin)}${h.checkout ? ' → ' + fmtS(h.checkout) : ''}<br>${esc(label(SSTAT, h.status))}`);
@@ -401,6 +457,7 @@ function render() {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === UI.tab));
   const views = { home: viewHome, plan: viewPlan, book: viewBook, places: viewPlaces, map: viewMap, money: viewMoney, lists: viewLists };
   $('#view').innerHTML = views[UI.tab]();
+  tickTimers();
   if (UI.tab === 'map') setTimeout(drawMap, 30);
   if (UI.tab === 'home') loadWeather();
 }
@@ -421,11 +478,20 @@ document.addEventListener('click', e => {
   else if (act === 'visit') { const p = S.places.find(x => x.id === id); p.visited = !p.visited; touch(p); save(); render(); }
   else if (act === 'toggle') { const tk = S.tasks.find(x => x.id === id); if (tk) { tk.done = !tk.done; touch(tk); save(); render(); } }
   else if (act === 'loadlists') { const L = defaultLists(S.trip.start); S.tasks.push(...L.tasks); S.contacts.push(...L.contacts); save(); render(); toast('Checklists added – tick, edit or delete anything'); }
+  else if (act === 'choose') {
+    const h = S.stays.find(x => x.id === id);
+    if (h) {
+      S.stays.filter(x => x.id !== h.id && x.status === 'shortlist' && x.city === h.city && x.checkin === h.checkin && x.checkout === h.checkout).forEach(x => { x.status = 'cancelled'; touch(x); });
+      h.status = 'pending'; touch(h); save(); render(); toast('Chosen – the other options were marked cancelled');
+    }
+  }
   else if (act === 'ics') exportICS();
   else if (act === 'share') shareSummary();
   else if (act === 'print') window.print();
   else if (act === 'sample') loadSample();
   else if (act === 'code') askCode();
+  else if (act === 'syncnow') { if (cloud) { pullCloud(); toast('Syncing…'); } else askCode(); }
+  else if (act === 'caljump') { const el = document.getElementById('day-' + v); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1500); } }
   else if (act === 'backup') backup();
   else if (act === 'restore') restore();
 });
@@ -440,7 +506,7 @@ document.addEventListener('keydown', e => {
   save(); render();
   const nx = document.querySelector(`input[data-quick="${g}"]`); if (nx) nx.focus();
 });
-$('#syncBadge').onclick = askCode;
+$('#syncBadge').onclick = () => { if (cloud) pullCloud(); else askCode(); };
 
 /* ---------- backup / restore / sample ---------- */
 function backup() {
@@ -467,7 +533,7 @@ function audit() {
   const out = [], today = todayISO();
   const add = (sev, t, d, kind, id) => out.push({ sev, t, d, kind, id });
   const dleft = d => diffDays(today, d), days = n => `${n} day${n === 1 ? '' : 's'}`;
-  const bk = S.bookings.filter(b => b.status !== 'cancelled'), stays = S.stays.filter(h => h.status !== 'cancelled');
+  const bk = S.bookings.filter(b => !['cancelled', 'option'].includes(b.status)), stays = S.stays.filter(h => !['cancelled', 'shortlist'].includes(h.status));
 
   // 1. transport that is not confirmed
   bk.filter(b => b.status !== 'confirmed' && b.date).forEach(b => {
@@ -482,6 +548,12 @@ function audit() {
     } else if (b.status === 'notbooked') add('info', `${name} not booked yet`, `${days(n)} to go. Booking early is usually cheaper.`, 'booking', b.id);
   });
   bk.filter(b => b.status === 'confirmed' && !b.ref).forEach(b => add('warn', `${b.from} → ${b.to} is confirmed but has no PNR / ticket number`, 'Add it so you can find it quickly at the station.', 'booking', b.id));
+
+  // 1b. anything dated outside the trip dates (e.g. after you changed them)
+  if (S.trip.start && S.trip.end) {
+    const outs = [...bk.map(b => [b.date, `${b.from} → ${b.to}`, 'booking', b.id]), ...S.stays.filter(h => h.status !== 'shortlist' && h.status !== 'cancelled').map(h => [h.checkin, h.name, 'stay', h.id]), ...S.places.filter(p => p.plan !== 'idea').map(p => [p.date, p.name, 'place', p.id])].filter(([d]) => d && (d < S.trip.start || d > S.trip.end));
+    if (outs.length) add('warn', `${outs.length} item${outs.length > 1 ? 's are' : ' is'} dated outside your trip dates`, outs.slice(0, 3).map(o => `${o[1]} (${fmtS(o[0])})`).join(', ') + (outs.length > 3 ? '…' : '') + ' – move it or change the trip dates.', outs[0][2], outs[0][3]);
+  }
 
   // 2. journey continuity per person: every leg should start where the last one ended
   const pairs = new Map();
@@ -500,15 +572,34 @@ function audit() {
   });
   pairs.forEach(({ a, b, who }) => add('warn', `${who.length === 2 ? 'You both' : people()[who[0]]}: arrive in ${a.to} but the next leg starts from ${b.from}`, `Is a leg missing between ${fmtS(a.date)} and ${fmtS(b.date)}? (a cab, bus or return trip)`, 'booking', b.id));
 
+  // 2b. leaving a city while its stay is still running, arriving where you have no stay, impossible times
+  bk.filter(b => ['train', 'bus', 'flight'].includes(b.mode) && b.date).forEach(b => {
+    const still = stays.find(h => sameCity(h.city, b.from) && h.checkin && h.checkin <= b.date && h.checkout && b.date < h.checkout);
+    if (still) add('warn', `You leave ${b.from} on ${fmt(b.date)} but ${still.name} is booked until ${fmt(still.checkout)}`, 'Two of your plans disagree, or you would pay for a night you do not use. Check the dates.', 'booking', b.id);
+    const arr = b.arrDate || b.date, there = stays.filter(h => h.checkin && sameCity(h.city, b.to));
+    if (there.length && !there.some(h => h.checkin <= arr && (h.checkout ? arr < h.checkout : arr === h.checkin))) {
+      const nxt = there.filter(h => h.checkin > arr).sort((x, y) => x.checkin.localeCompare(y.checkin))[0];
+      add('warn', `You arrive in ${b.to} on ${fmt(arr)} but have no stay there that night`, nxt ? `Your next stay there starts ${fmt(nxt.checkin)} (${nxt.name}).` : 'Your stays there have all ended.', 'booking', b.id);
+    }
+    const d0 = depOf(b), a0 = arrOf(b);
+    if (d0 && a0 && a0 <= d0) add('warn', `${b.from} → ${b.to}: arrival is before departure`, 'Check the arrival date, time and time zones.', 'booking', b.id);
+  });
+  const noArr = bk.filter(b => !b.arrTime).length;
+  if (noArr) add('info', `${noArr} transport leg${noArr === 1 ? ' has' : 's have'} no arrival time`, 'Add it to get an arrival timer.', '');
+
   // 3. nights with no hotel / double-booked nights
   if (S.trip.start && S.trip.end) {
-    const missing = [];
+    const missing = [], picks = new Map();
     for (let d = S.trip.start, g = 0; d < S.trip.end && g < 120; d = addDays(d, 1), g++) {
       const hs = stays.filter(h => h.checkin && h.checkin <= d && (h.checkout ? d < h.checkout : d === h.checkin));
       const overnight = bk.some(b => b.date === d && ['train', 'bus'].includes(b.mode) && (b.time || '') >= '17:00');
-      if (!hs.length && !overnight) missing.push(d);
+      if (!hs.length && !overnight) {
+        const opts = S.stays.filter(h => h.status === 'shortlist' && h.checkin && h.checkin <= d && (h.checkout ? d < h.checkout : d === h.checkin));
+        if (opts.length) picks.set(opts[0].city || opts[0].name, opts); else missing.push(d);
+      }
       if (hs.length > 1) add('warn', `Two stays overlap on the night of ${fmt(d)}`, hs.map(h => h.name).join(' & '), 'stay', hs[0].id);
     }
+    picks.forEach((opts, city) => add('warn', `Choose a hotel in ${city} – ${opts.length} option${opts.length === 1 ? '' : 's'} shortlisted`, `${fmtS(opts[0].checkin)} – ${fmtS(opts[0].checkout)} · tap Bookings → ✓ Choose`, 'stay', opts[0].id));
     if (missing.length) add('bad', `No hotel for ${missing.length} night${missing.length === 1 ? '' : 's'}: ${missing.slice(0, 5).map(fmtS).join(', ')}${missing.length > 5 ? '…' : ''}`, 'Add a stay (or mark an overnight train/bus).', 'stay');
   } else if (S.bookings.length || S.stays.length) add('info', 'Set your trip start and end dates', 'Then Safar can check every night has a bed. Home → Trip settings.', 'trip');
 
@@ -528,14 +619,14 @@ function audit() {
   if (noPhone) add('info', `${noPhone} stay${noPhone === 1 ? ' has' : 's have'} no phone number`, 'Add it so you can call from the road (late arrival, pickup).', 'stay');
 
   // 5. places and tickets
-  S.places.filter(p => p.tix === 'tobook').forEach(p => {
+  S.places.filter(p => p.tix === 'tobook' && p.plan !== 'idea').forEach(p => {
     const n = p.date ? dleft(p.date) : null;
     add(n !== null && n <= 30 ? 'bad' : 'warn', `Book tickets for ${p.name}`, (p.date ? `${fmt(p.date)} (${days(n)}). ` : 'No date yet. ') + 'Popular slots sell out – book early.', 'place', p.id);
   });
   const clash = {};
   S.places.filter(p => p.date && p.time).forEach(p => { (clash[p.date + ' ' + p.time] = clash[p.date + ' ' + p.time] || []).push(p); });
   Object.values(clash).filter(l => l.length > 1).forEach(l => add('warn', `${l.length} places at the same time: ${l.map(p => p.name).join(' & ')}`, `${fmt(l[0].date)} ${l[0].time}`, 'place', l[0].id));
-  const undated = S.places.filter(p => !p.date).length;
+  const undated = S.places.filter(p => !p.date && p.plan !== 'idea').length;
   if (undated) add('info', `${undated} place${undated === 1 ? ' has' : 's have'} no date yet`, 'Give them a day so they show on the plan and map.', 'place');
   const missed = S.places.filter(p => p.date && p.date < today && !p.visited).length;
   if (missed) add('info', `${missed} past place${missed === 1 ? '' : 's'} not marked visited`, 'Tick the ones you saw; the rest may still be worth a revisit.', 'place');
@@ -574,7 +665,7 @@ function todayCard() {
   if (!t.start || today < t.start || (t.end && today > t.end)) return '';
   const all = events(), ev = all.filter(e => e.date === today), tom = all.filter(e => e.date === addDays(today, 1));
   const tonight = S.stays.find(h => h.status !== 'cancelled' && h.checkin && h.checkin <= today && (h.checkout ? today < h.checkout : today === h.checkin));
-  const row = e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}</div>${e.pill}</div>`;
+  const row = e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}${e.timer ? `<div style="margin-top:3px">${e.timer}</div>` : ''}</div>${e.pill}</div>`;
   return `<div class="card wide" style="border-color:var(--brand)"><h3>📍 Today · Day ${diffDays(t.start, today) + 1}</h3>
     ${ev.length ? ev.map(row).join('') : '<div class="muted">Nothing planned today.</div>'}
     ${tonight ? `<div class="item"><div class="ico">🌙</div><div class="grow">Tonight: <b>${esc(tonight.name)}</b>${tonight.city ? ' · ' + esc(tonight.city) : ''}${tonight.phone ? ` · <a href="tel:${esc(tonight.phone)}">📞 ${esc(tonight.phone)}</a>` : ''}</div></div>` : ''}
@@ -637,32 +728,96 @@ function viewLists() {
     ${cs.length ? cs.map(c => `<div class="item"><div class="ico">📞</div><div class="grow" data-act="edit" data-kind="contact" data-id="${c.id}" style="cursor:pointer"><b>${esc(c.name)}</b><div class="muted">${[c.role, c.phone, c.notes].filter(Boolean).map(esc).join(' · ')}</div></div>${c.phone ? `<a class="btn small" href="tel:${esc(c.phone)}" style="text-decoration:none">Call</a>` : ''}</div>`).join('') : '<div class="muted">Add hotel owners, drivers, her family back home…</div>'}</div>`;
   return `<div class="h2">Checklists <span>${!S.tasks.length ? '<button class="btn small" data-act="loadlists">✨ Load Rajasthan checklists</button>' : ''}</span></div>${sections}${contacts}`;
 }
+/* =====================================================================
+   Arrival timers, shortlist helpers
+   ===================================================================== */
+const instant = (d, t, tz) => {
+  if (!d || !/^\d\d:\d\d$/.test(t || '')) return null;
+  const x = new Date(`${d}T${t}:00${tz || '+05:30'}`);
+  return isNaN(x) ? null : x;
+};
+const arrOf = b => instant(b.arrDate || b.date, b.arrTime, b.arrTz);
+const depOf = b => instant(b.date, b.time, b.depTz);
+function fmtLeft(ms) {
+  let s = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m ${String(s).padStart(2, '0')}s`;
+  return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+// dep/arr are epoch milliseconds (dep may be null). Returns the text and style for the timer pill.
+function timerInfo(dep, arr, now) {
+  if (arr === null || arr === undefined) return null;
+  if (now >= arr) return { cls: 'done', text: now - arr < 48 * 36e5 ? `✓ Arrived ${fmtLeft(now - arr)} ago` : '✓ Arrived' };
+  if (dep !== null && dep !== undefined && now >= dep) return { cls: 'live', text: `🚆 On the way · arrives in ${fmtLeft(arr - now)}` };
+  return { cls: 'wait', text: `⏱ Arrives in ${fmtLeft(arr - now)}` };
+}
+function timerHTML(b) {
+  if (!b || b.status === 'cancelled') return '';
+  const a = arrOf(b); if (!a) return '';
+  const d = depOf(b);
+  return `<span class="timer wait" data-arr="${a.getTime()}" data-dep="${d ? d.getTime() : ''}">…</span>`;
+}
+function tickTimers(now = Date.now()) {
+  document.querySelectorAll('.timer[data-arr]').forEach(el => {
+    const i = timerInfo(el.dataset.dep ? +el.dataset.dep : null, +el.dataset.arr, now);
+    if (i) { el.textContent = i.text; el.className = 'timer ' + i.cls; }
+  });
+}
+setInterval(tickTimers, 1000);
+
+const tzNote = z => z === '+04:00' ? ' (Dubai time)' : '';
+const arrText = b => b.arrTime ? ` → ${b.arrDate && b.arrDate !== b.date ? fmtS(b.arrDate) + ' ' : ''}${esc(b.arrTime)}${tzNote(b.arrTz)}` : '';
+
+function arrivalsCard() {
+  const now = Date.now();
+  const list = S.bookings.filter(b => b.status !== 'cancelled' && b.status !== 'option').map(b => ({ b, a: arrOf(b) })).filter(x => x.a && x.a.getTime() > now - 6 * 36e5).sort((x, y) => x.a - y.a).slice(0, 4);
+  if (!list.length) return '';
+  return `<div class="card wide"><h3>⏱ Next arrivals</h3>${list.map(({ b }) => `<div class="item" data-act="edit" data-kind="booking" data-id="${b.id}" style="cursor:pointer"><div class="ico">${MODE_ICO[b.mode]}</div><div class="grow"><b>${esc(b.from)} → ${esc(b.to)}</b> ${whoPill(b.who)}<div class="muted">${fmt(b.date)}${b.time ? ' ' + esc(b.time) : ''}${arrText(b)}</div><div style="margin-top:3px">${timerHTML(b)}</div></div></div>`).join('')}<div class="muted" style="margin-top:6px">Every leg has its own timer under Bookings.</div></div>`;
+}
+function shortlistCost() {
+  const g = {};
+  S.stays.filter(h => h.status === 'shortlist' && +h.cost > 0).forEach(h => { const k = [h.city, h.checkin, h.checkout].join('|'); g[k] = Math.min(g[k] ?? Infinity, +h.cost); });
+  return Object.values(g).reduce((a, x) => a + x, 0);
+}
+
 function defaultLists(start) {
   const n = Date.now(); let i = 0;
   const D = k => start ? addDays(start, k) : '';
   const T = (group, text, who = 'both', due = '') => ({ id: uid(), group, text, who, due, done: false, _u: n, _o: n + (i++) });
   const tasks = [
-    T('pack', 'Warm layers – jacket, sweater, cap (desert nights get cold)'), T('pack', 'Light cotton clothes for the day'),
-    T('pack', 'Scarf / dupatta / mask for dust and sun'), T('pack', 'Modest clothes for temples & forts (cover shoulders and knees)'),
-    T('pack', 'Comfortable walking shoes – lots of steps and stairs in forts'), T('pack', 'Sunglasses, sunscreen, lip balm'),
-    T('pack', 'Power bank + chargers'), T('pack', 'Plug adapter for her devices (UAE → India)', '1'),
-    T('pack', 'Small notes & coins for tips, camel ride, parking, entry'), T('pack', 'Reusable water bottle'),
-    T('pack', 'Basic medicines: motion-sickness, ORS, stomach, pain relief, plasters'), T('pack', 'Hand sanitiser & wet wipes'),
-    T('pack', 'Snacks for long drives (veg)'), T('pack', 'Small day-bag + a bag for laundry'),
-    T('docs', 'Photo ID for both – Aadhaar / passport (needed for safari & hotels)'), T('docs', 'Her passport + UAE residence ID; check Indian visa / OCI status', '1'),
-    T('docs', 'Train / flight tickets saved offline (screenshots or PDF)'), T('docs', 'Hotel confirmations saved offline'),
-    T('docs', 'Ranthambore safari booking confirmation + ID used to book'), T('docs', 'Travel insurance papers'),
-    T('docs', 'Copies of IDs kept separately (photo in phone + paper)'),
-    T('todo', 'Book the Ranthambore safari (check the official forest-dept site)', 'both', D(-14)), T('todo', 'Check the Jodhpur → Jaisalmer train is actually running (14810) or book a cab', 'both', D(-14)),
-    T('todo', 'Ask the Sam desert camp for a vegetarian dinner, pickup and what the price includes', 'both', D(-10)),
-    T('todo', 'Buy travel insurance', 'both', D(-10)), T('todo', 'Tell her bank/card she is travelling to India', '1', D(-7)),
-    T('todo', 'Download offline maps (Jaipur, Jodhpur, Jaisalmer, Udaipur)', 'both', D(-2)), T('todo', 'Withdraw cash – desert camps and small shops often take cash only', 'both', D(-1)),
+    T('pack', 'Warm layers – Rajasthan nights in January are cold, desert camps colder'), T('pack', 'Thermals, woollen cap, gloves and socks (night trains + dunes)'),
+    T('pack', 'Scarf / mask for dust and sun'), T('pack', 'Modest clothes for temples & forts (cover shoulders and knees)'),
+    T('pack', 'Comfortable walking shoes – lots of steps in forts'), T('pack', 'Sunglasses, sunscreen, lip balm'),
+    T('pack', 'Power bank + chargers (night trains, long days)'), T('pack', 'Plug adapter for her devices (UAE → India)', '1'),
+    T('pack', 'Binoculars & camera for the raptor, bird and leopard safaris'), T('pack', 'Small notes & coins for tips, rickshaws, entry'),
+    T('pack', 'Reusable water bottle'), T('pack', 'Basic medicines: motion-sickness, ORS, stomach, pain relief, plasters'),
+    T('pack', 'Hand sanitiser & wet wipes'), T('pack', 'Snacks for long train rides (veg)'), T('pack', 'Small padlock/chain for luggage on night trains'),
+    T('docs', 'Photo ID for both – Aadhaar / passport (needed on trains, hotels, safaris)'), T('docs', 'Her passport + UAE residence ID; check Indian visa / OCI status', '1'),
+    T('docs', 'IRCTC e-tickets for all 8 train legs saved offline (PDF/screenshots)'), T('docs', 'Flight tickets for 7 Feb saved offline'),
+    T('docs', 'Hotel confirmations saved offline'), T('docs', 'Safari booking confirmations (Jorbeer, Phulera, Jawai)'),
+    T('docs', 'Travel insurance papers'), T('docs', 'Copies of IDs kept separately (photo in phone + paper)'),
+    T('todo', 'Book the 8 trains on IRCTC as each 60-day window opens – first one (19 Jan) opens about ' + (start ? fmtS(D(-60)) : '60 days before'), 'both', D(-60)),
+    T('todo', 'Add HER flight Dubai → Jaipur (not in your documents; the first hotel night is 20 Jan)', '1', D(-45)),
+    T('todo', 'Decide the Jodhpur → Jawai → Jaipur dates: the train list and the itinerary disagree (see Bookings: the “Alternative” legs)', 'both', D(-45)),
+    T('todo', 'Pick one hotel each in Jaipur, Bikaner and Bharatpur (Bookings → ✓ Choose)', 'both', D(-30)),
+    T('todo', 'Check the Jorbeer raptor safari with Dr Solanki (link in Places)', 'both', D(-30)),
+    T('todo', 'Fill in the Phulera safari details (your notes only say “SAFARI -”)', 'both', D(-30)),
+    T('todo', 'Arrange the transfer between Falna station / Jodhpur and Jawai (not in your documents)', 'both', D(-30)),
+    T('todo', 'Ask each hotel and camp about vegetarian food', 'both', D(-21)),
+    T('todo', 'Ask the Bikaner hotel about early check-in (train arrives 06:15)', 'both', D(-14)),
+    T('todo', 'Buy travel insurance', 'both', D(-21)), T('todo', 'Tell her bank/card she is travelling to India', '1', D(-7)),
+    T('todo', 'Download offline maps (Jaipur, Bikaner, Bharatpur, Jaisalmer, Jodhpur, Jawai)', 'both', D(-2)),
+    T('todo', 'Withdraw cash – camps and small shops often take cash only', 'both', D(-1)),
     T('todo', 'Share live location with family on travel days'), T('todo', 'Add this trip to your phone calendar (Home → Add to calendar)')
   ];
   const C = (name, role, phone, notes = '') => ({ id: uid(), name, role, phone, notes, _u: n, _o: n + (i++) });
   const contacts = [
     C('Emergency (police, fire, ambulance)', 'India', '112', 'Verify numbers before travel'), C('Ambulance', 'India', '108'),
-    C('Tourist helpline (24x7)', 'Ministry of Tourism', '1363'), C('Railway enquiry / help', 'Indian Railways', '139')
+    C('Tourist helpline (24x7)', 'Ministry of Tourism', '1363'), C('Railway enquiry / help', 'Indian Railways', '139'),
+    C('Dr Solanki', 'Jorbeer raptor safari (from your notes)', '', 'Booking page: https://jorbeer.com/vinayak-guest-house/ – add his phone number')
   ];
   return { tasks, contacts };
 }
@@ -702,83 +857,94 @@ async function shareSummary() {
   try { await navigator.clipboard.writeText(text); toast('Summary copied – paste it into WhatsApp'); } catch { prompt('Copy this summary:', text); }
 }
 
-function loadSample() {
-  if ((S.bookings.length || S.places.length) && !confirm('This will replace what you have now. Continue?')) return;
-  const start = prompt('Trip start date = the day you leave Jammu (YYYY-MM-DD)?', S.trip.start || addDays(todayISO(), 30));
-  if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return;
-  const D = n => addDays(start, n), id = uid, IRCTC = 'https://www.irctc.co.in';
-  // tombstone everything currently here so a second device drops it too instead of merging it back
+function loadSample(auto) {
+  if (!auto && (S.bookings.length || S.places.length || S.stays.length) && !confirm('This replaces what you have now with your Rajasthan Jan–Feb 2027 plan. Continue?')) return;
+  seeding = true; seedN = 0;
+  const IRCTC = 'https://www.irctc.co.in', id = uid;
   S.deleted = S.deleted || {};
   const t0 = Date.now();
   COLS.forEach(c => (S[c] || []).forEach(it => { S.deleted[it.id] = t0; }));
-  S.trip = { ...S.trip, name: 'Rajasthan – Forts, Dunes & Safari', start, end: D(10), budget: 150000 };
+  S.trip = { ...S.trip, name: 'Rajasthan – Jan/Feb 2027', start: '2027-01-19', end: '2027-02-07' };
 
-  const B = (mode, from, to, d, time, status, ref, cost, notes, link = '', who = 'both') => ({ id: id(), mode, from, to, date: D(d), time, status, ref, cost, notes, link, who });
+  // B(mode, from, to, depDate, depTime, arrDate, arrTime, cost, notes, who, extra)
+  const B = (mode, from, to, date, time, arrDate, arrTime, cost, notes, who = 'both', extra = {}) =>
+    ({ id: id(), mode, from, to, date, time, arrDate, arrTime, depTz: '+05:30', arrTz: '+05:30', status: 'notbooked', ref: '', cost, notes, link: mode === 'train' ? IRCTC : '', who, ...extra });
   S.bookings = [
-    B('train', 'Jammu Tawi', 'Jaipur', 0, '18:15', 'confirmed', 'SAMPLE-PNR', 1900, 'YOUR train. 12414 Pooja SF Express, daily: reported 18:15 → 09:35 next day (~15h20m). Fare is a rough per-person estimate – check class and price on IRCTC. Backup: 14662 Malani Express, 22:25 → 17:35.', IRCTC, '0'),
-    B('flight', 'Dubai', 'Jaipur', 1, '12:15', 'notbooked', '', 14000, 'HER flight (times are Dubai time). Direct flights reported on Air India Express (~7/week) and SpiceJet (~2/week), about 3h10m. 12:15 is a SpiceJet sample departure. One-way fares seen about $111–251 (₹9k–21k). Compare on the airline sites; she lands in the afternoon, you arrive in the morning.', '', '1'),
-    B('cab', 'Jaipur', 'Ranthambore', 3, '09:30', 'pending', '', 7000, 'Day trip: about 3 hrs each way. Price is a rough estimate for the round trip – get 2–3 quotes. Option: stay a night in Sawai Madhopur instead.'),
-    B('cab', 'Ranthambore', 'Jaipur', 3, '18:00', 'pending', '', 0, 'Return leg of the same cab (included in the price above). The afternoon safari ends around 17:30.'),
-    B('train', 'Jaipur', 'Jodhpur', 4, '06:00', 'waiting', 'WL 5 (sample)', 1600, 'Train 22478 Jaipur–Jodhpur SF Intercity Express: 06:00 → 10:55 (4h55m), daily; classes CC / 2S / GN. Fare is a rough estimate. If waitlisted, a cab takes about 5.5 hrs.', IRCTC),
-    B('train', 'Jodhpur', 'Jaisalmer', 5, '07:05', 'rac', '', 1200, 'Train 14810 reported as 07:05 → 12:40 (5h35m), but the source marks it as possibly cancelled/outdated. Confirm on IRCTC; otherwise take a cab (about 5 hrs).', IRCTC),
-    B('cab', 'Jaisalmer', 'Sam Sand Dunes', 6, '15:00', 'notbooked', '', 1500, 'About an hour. Many camps include pickup – ask when you book. Rough estimate.'),
-    B('cab', 'Sam Sand Dunes', 'Udaipur', 7, '07:30', 'notbooked', '', 12000, 'Long drive – roughly 9–10 hrs with stops. Rough estimate. Easier: split the journey with a night in Jodhpur, or take an early train/flight.'),
-    B('flight', 'Udaipur', 'Delhi', 10, '12:35', 'pending', '', 11000, 'Direct options seen for one sample day: Air India AI-1820 12:35 → 14:05; IndiGo 6E-2228 13:00; also 08:20, 08:55, 11:10, 17:55, 18:10, 19:55. Fare for 2 is a rough estimate. Check your actual date.'),
-    B('flight', 'Delhi', 'Dubai', 10, '', 'notbooked', '', 15000, 'HER flight home. Choose a departure at least 3 hrs after the Udaipur flight lands.', '', '1'),
-    B('flight', 'Delhi', 'Jammu', 10, '', 'notbooked', '', 3500, 'YOUR trip home (flight or train). Rough estimate.', '', '0')
+    B('train', 'Jammu Tawi', 'Jaipur', '2027-01-19', '18:35', '2027-01-20', '09:35', 1810, 'Option A from your notes (“Jammu Tawai Train”). AC 2 Tier ₹1,810 · First Class ₹3,020 – cost shown is AC 2 Tier for one person. Arrival 9:35 AM next day (implied by the overnight journey). I assumed this one is YOUR train from Jammu. Option B – Surat → Jaipur: BDTS Jaipur SF, departs 20:43, arrives Jaipur 10:05 next day, AC 2 Tier ₹1,825.', '0'),
+    B('train', 'Jaipur', 'Bikaner', '2027-01-22', '23:45', '2027-01-23', '06:15', 1960, 'HWH BKN Express. Fares per person: First Class ₹1,620 · 2nd AC (2 Tier) ₹980. Cost shown = 2 × ₹980 (2 Tier AC). Arrives Bikaner Sat 06:15 – ask the hotel about early check-in.'),
+    B('train', 'Bikaner', 'Bharatpur', '2027-01-24', '22:30', '2027-01-25', '07:25', 2700, 'BKN SF Express. Per person: 2A ₹1,350 · 1A ₹2,230. Cost shown = 2 × ₹1,350.'),
+    B('train', 'Bharatpur', 'Phulera', '2027-01-27', '08:10', '2027-01-27', '13:18', 1450, 'Maudhar Express. AC 2 Tier ₹725 per person. Cost shown = 2 × ₹725.'),
+    B('train', 'Phulera', 'Jaisalmer', '2027-01-28', '23:25', '2027-01-29', '09:00', 2660, 'Swarn Nagri Express. AC 2 Tier ₹1,330 per person. Cost shown = 2 × ₹1,330.'),
+    B('train', 'Jaisalmer', 'Jodhpur', '2027-01-31', '06:30', '2027-01-31', '11:30', 1130, 'JSM SBIB SF Express. AC 3 Tier ₹565 per person. Cost shown = 2 × ₹565.'),
+    B('train', 'Jodhpur', 'Falna', '2027-02-01', '06:00', '2027-02-01', '08:00', 1140, '⚠️ CONFLICT with your itinerary. Train list: Vande Bharat Exp, AC Chair Car ₹570 (assumed per person), leaves Jodhpur 1 Feb 6:00 AM. Itinerary: you stay in Jodhpur 31 Jan – 2 Feb and leave at 12 PM on 2 Feb (see the Alternative leg below). Decide which is right.'),
+    B('train', 'Falna', 'Jaipur', '2027-02-03', '09:17', '2027-02-03', '14:40', 1350, '⚠️ CONFLICT with your itinerary. Train list: SBIB BSB Express, AC 3 Tier ₹675 (assumed per person), 3 Feb 9:17 → 14:40. Itinerary: you are at Jawai until 5 Feb, leaving at 10:13 AM and reaching Jaipur at 17:45 on 5 Feb (see the Alternative leg below).'),
+    B('cab', 'Jodhpur', 'Jawai', '2027-02-02', '12:00', '2027-02-02', '15:00', 0, 'ALTERNATIVE, from your itinerary: leave Jodhpur 12 PM, reach Jawai 3 PM on 2 Feb. Mode not stated – assumed a road transfer. Change the status from “Alternative” to “Not booked” if this is the real plan (and delete the Jodhpur → Falna train).', 'both', { status: 'option' }),
+    B('train', 'Jawai', 'Jaipur', '2027-02-05', '10:13', '2027-02-05', '17:45', 0, 'ALTERNATIVE, from your itinerary: leave Jawai 10:13 AM, reach Jaipur 17:45 on 5 Feb (hotel Rameshwaram that night). Train from Falna assumed – add the train name/fare. Make it “Not booked” if this is the real plan (and delete the Falna → Jaipur 3 Feb train).', 'both', { status: 'option' }),
+    B('flight', 'Jaipur', 'Jammu', '2027-02-07', '15:15', '2027-02-07', '20:00', 5784, 'YOUR flight home, Sun 7 Feb (your notes say “7th Jan (Sun)” – a Sunday only fits 7 Feb). 3:15 PM → 8 PM. Prices in your notes: AED 248 (Skyscanner) · AED 241 (MakeMyTrip). Cost shown = AED 241 × 24 = ₹5,784, assumed for one person. 4h45 is long for this route – check if it connects.', '0'),
+    B('flight', 'Jaipur', 'Mumbai', '2027-02-07', '08:30', '2027-02-07', '10:30', 0, 'HER flight home, leg 1. Your notes say “08:3AM – 10:30AM” – I read it as 08:30; please confirm. Add the fare.', '1'),
+    B('flight', 'Mumbai', 'Dubai', '2027-02-07', '15:50', '2027-02-07', '17:55', 0, 'HER flight home, leg 2. Two options in your notes: 15:50 → 17:55 (shown here) or 16:25 → 18:35 (see the Alternative below). Arrival is Dubai time. Add the fare.', '1', { arrTz: '+04:00' }),
+    B('flight', 'Mumbai', 'Dubai', '2027-02-07', '16:25', '2027-02-07', '18:35', 0, 'ALTERNATIVE for her: 16:25 → 18:35 (Dubai time). Make it “Not booked” if you prefer this flight and delete the 15:50 one.', '1', { arrTz: '+04:00', status: 'option' })
   ];
 
-  const H = (name, city, ci, co, status, veg, cost, ref, notes) => ({ id: id(), name, city, checkin: D(ci), checkout: D(co), status, veg, cost, ref, phone: '', notes });
+  const H = (name, city, ci, co, status, cost, notes) => ({ id: id(), name, city, checkin: ci, checkout: co, status, veg: 'unknown', cost, ref: '', phone: '', notes });
+  const sh = 'Shortlisted. Price from your notes – I assumed it is the total for the stay, not per night. ';
   S.stays = [
-    H('Ratnawali – A Vegetarian Heritage Hotel', 'Jaipur', 1, 4, 'booked', 'pure', 10500, 'SAMPLE-BOOKING', 'MI Road, near Panch Batti. Pure-veg restaurant, Jain food available, breakfast included. Listing price: AC Super Deluxe from ₹2,841/night + taxes (about ₹3,500). Rated about 3.9–4.2/5. Paid airport/station transfers.'),
-    H('Mandore Guest House (listed as pure vegetarian)', 'Jodhpur', 4, 5, 'pending', 'pure', 2000, '', 'Listed on a booking site as a pure vegetarian guest house; I could not load price details, so the cost is a rough guess. Check location vs. the Clock Tower / fort side.'),
-    H('Hotel Jaisal Inn – Pure Veg', 'Jaisalmer', 5, 6, 'notbooked', 'pure', 3000, '', 'Gadisar Rd near Hanuman Circle. Reviewers say it is close to the fort and the rooftop has a fort view. 8.1/10 from 24 reviews, free breakfast, pool, check-in 14:00. Rate is a rough estimate – check your dates.'),
-    H('Sam Sand Dunes desert camp (e.g. Oasis Camp Sam)', 'Sam Sand Dunes', 6, 7, 'notbooked', 'unknown', 5400, '', 'Listings run about ₹1,900–2,700 per adult; some include a camel ride and Kalbeliya folk dance. None of the listings said whether dinner is vegetarian – ask for a veg dinner before booking. Price shown is ₹2,700 × 2.'),
-    H('Hotel Mewari Villa – Pure Veg', 'Udaipur', 7, 10, 'notbooked', 'pure', 15000, '', 'Chand Pole, steps from Imli Ghat and the lake; rooftop restaurant, 8.1/10 from 51 reviews. Breakfast about ₹200 pp extra. Listing showed roughly "from NZD 112/night" (about ₹5,000+). The description also mentions halal options – confirm the kitchen is fully veg.')
+    H('Fab Hotel Pink Cozzy', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2372, sh),
+    H('Vinayak Guest House', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2321, sh),
+    H('Hotel Rameshwaram', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2268, sh + 'You also listed this hotel for 5 Feb.'),
+    H('Hotel Hanumat Palace', 'Jaipur', '2027-01-20', '2027-01-22', 'shortlist', 2463, sh),
+    H('Hotel Vivo International', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1160, sh + 'Train arrives 06:15 – ask about early check-in.'),
+    H('Little Prince Guest House and Homestay', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1044, sh + 'Train arrives 06:15 – ask about early check-in.'),
+    H('Hotel Jaswant Bhawan', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1890, sh + 'Your notes spell it “Jaswant Bahwan”. Train arrives 06:15 – ask about early check-in.'),
+    H('Rose Merry Guesthouse', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 536, sh + 'Train arrives 06:15 – ask about early check-in.'),
+    H('Karina Art Home Stay', 'Bikaner', '2027-01-23', '2027-01-24', 'shortlist', 1318, sh + 'Train arrives 06:15 – ask about early check-in.'),
+    H('Iora Guest House', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 2982, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
+    H('Royal House', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 1254, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
+    H('Jungle Lodge', 'Bharatpur', '2027-01-25', '2027-01-27', 'shortlist', 2520, sh + 'Train arrives 07:25 on 25 Jan; you leave at 08:10 on 27 Jan.'),
+    H('Heaven Café and Hotel', 'Phulera', '2027-01-27', '2027-01-28', 'pending', 1200, '₹1,200 per night (your notes). Arrive 13:18 on 27 Jan, night train 23:25 on 28 Jan. A cab to see the salt lake and nearby sights is ₹2,000 (added under Places).'),
+    H('Magic Heritage Camp', 'Jaisalmer', '2027-01-29', '2027-01-30', 'pending', 1262, '29 Jan, 1 night, ₹1,262 (your notes). Train arrives 09:00.'),
+    H('Sonar Bhumi Hotel', 'Jaisalmer', '2027-01-30', '2027-01-31', 'pending', 840, '30 Jan, 1 night, ₹840 (your notes). You leave on the 06:30 train on 31 Jan.'),
+    H('House of Raghunath', 'Jodhpur', '2027-01-31', '2027-02-02', 'pending', 2876, '31 Jan – 2 Feb, 2 nights, ₹2,876 (assumed total). Train arrives 11:30. Itinerary says you leave at 12 PM on 2 Feb – but the train list has a Jodhpur → Falna train on 1 Feb at 6 AM.'),
+    H('Jawai Backpackers Hotel', 'Jawai', '2027-02-02', '2027-02-05', 'pending', 5355, '2–5 Feb, 3 nights, ₹5,355 (assumed total). Itinerary: reach 3 PM on 2 Feb, leave 10:13 AM on 5 Feb. Your notes spell it “Backpacerks”.'),
+    H('Hotel Rameshwaram', 'Jaipur', '2027-02-05', '2027-02-07', 'pending', 1260, '5–7 Feb (Fri–Sun). ₹1,260 is what your notes list – the same hotel was ₹2,268 for 2 nights earlier, so this may be one night only. Check. Reach Jaipur 17:45 on 5 Feb. Flights leave on 7 Feb.')
   ];
 
-  const P = (d, name, category, city, lat, lng, veg, notes, time = '', cost = 0, tix = 'gate') => ({ id: id(), name, category, city, lat, lng, date: d === null ? '' : D(d), time, veg, notes, cost, tix, visited: false });
+  const P = (name, category, city, lat, lng, veg, notes, o = {}) => ({ id: id(), name, category, city, lat, lng, date: '', time: '', veg, notes, cost: 0, tix: 'gate', plan: 'idea', visited: false, ...o });
+  const IDEA = '💡 Idea (not in your documents). ';
   S.places = [
-    P(1, 'LMB – Laxmi Misthan Bhandar (Johari Bazaar)', 'food', 'Jaipur', 26.9188, 75.8268, 'pure', 'Pure-veg Rajasthani thali & sweets (please confirm hours). Easy first dinner after arriving.', '20:00'),
-    P(2, 'Amber Fort', 'fort', 'Jaipur', 26.9855, 75.8513, 'unknown', 'Go early to beat crowds. Indian adults about ₹200 each (some sources say ₹100) – confirm.', '09:00', 400),
-    P(2, 'Jantar Mantar', 'museum', 'Jaipur', 26.9247, 75.8246, 'unknown', 'About ₹100 pp (older listings ₹50).', '12:00', 200),
-    P(2, 'City Palace, Jaipur', 'museum', 'Jaipur', 26.9258, 75.8237, 'unknown', 'Run by the royal family trust, so confirm the price at the counter (reported about ₹200–400 pp).', '14:00', 400),
-    P(2, 'Hawa Mahal', 'fort', 'Jaipur', 26.9239, 75.8267, 'unknown', 'The outside is free to view from the street (great at sunset); interior about ₹100 pp.', '17:00', 200),
-    P(3, 'Ranthambore National Park – tiger safari', 'safari', 'Ranthambore', 26.0173, 76.5026, 'unknown', 'Afternoon safari usually starts 2:00–3:30 pm. Agent-quoted prices for Indian adults: canter about ₹1,200–1,800 pp, jeep about ₹1,800–2,500 pp (estimates – check the forest department notice). Book as early as possible, ID needed. Zones 1–5 are core tiger zones.', '14:30', 3000, 'tobook'),
-    P(4, 'Mehrangarh Fort', 'fort', 'Jodhpur', 26.2979, 73.0184, 'unknown', 'One listing: ₹100 pp for Indian adults, 9:00–17:00 (foreign adults ₹600 incl. audio guide). Confirm at the gate.', '13:00', 200),
-    P(4, 'Jaswant Thada', 'temple', 'Jodhpur', 26.3044, 73.021, 'unknown', 'Small fee at the counter (price not confirmed). Check the closing time.', '16:00'),
-    P(4, 'Clock Tower & Sardar Market', 'market', 'Jodhpur', 26.294, 73.0187, 'options', 'Spices, sweets, handicrafts, local lassi and snacks. Check veg status of each stall.', '17:30'),
-    P(5, 'Jaisalmer Fort', 'fort', 'Jaisalmer', 26.9127, 70.9128, 'unknown', 'About ₹50 pp for Indian visitors, Palace Museum included; roughly 9:00–18:00. Tickets bought at the gate. Lanes and temples are free to walk.', '15:30', 100),
-    P(5, 'Gadisar Lake', 'nature', 'Jaisalmer', 26.9101, 70.914, 'unknown', 'Sunset walk.', '17:45'),
-    P(6, 'Kuldhara Abandoned Village', 'temple', 'Jaisalmer', 26.8137, 70.7889, 'unknown', 'Small entry fee at the gate (not confirmed). Go in the morning, then head to the dunes.', '10:30'),
-    P(6, 'Sam Sand Dunes – camel & jeep safari, camp night', 'dunes', 'Sam Sand Dunes', 26.8333, 70.5167, 'unknown', 'Arrive for sunset. Some camps include a camel ride and folk dance. Jeep safari is usually extra – ask the camp.', '16:30'),
-    P(8, 'Udaipur City Palace', 'fort', 'Udaipur', 24.5764, 73.6835, 'unknown', 'About ₹400 pp, 9:00–21:00, ticket counter closes 20:00. Crystal Gallery is a separate ₹500 ticket.', '10:00', 800),
-    P(8, 'Jagdish Temple & thali lanes', 'temple', 'Udaipur', 24.58, 73.683, 'options', 'Cheaper thali places in the lanes behind the temple – check which are fully veg.', '13:30'),
-    P(8, 'Lake Pichola boat ride (sunset)', 'nature', 'Udaipur', 24.5724, 73.6806, 'unknown', 'About ₹800 pp for the sunset slot (₹600 regular); from Rameshwar Ghat, run by HRH Hotels. Confirm at the counter.', '17:00', 1600),
-    P(8, 'Lake-view rooftop dinner – Lal Ghat / Gangaur Ghat', 'food', 'Udaipur', 24.5815, 73.6812, 'options', 'Ask which rooftops serve pure-veg menus.', '20:00'),
-    P(9, 'Saheliyon ki Bari', 'nature', 'Udaipur', 24.5963, 73.6905, 'unknown', 'About ₹10 pp, 9:00–19:00.', '10:00', 20),
-    P(9, 'Sajjangarh (Monsoon Palace)', 'fort', 'Udaipur', 24.5936, 73.6355, 'unknown', 'About ₹120 pp plus about ₹340 for a car; 9:00–18:00, last entry 17:30. Great sunset view.', '16:30', 580),
-    P(null, 'Pushkar Lake & Brahma Temple (idea)', 'temple', 'Pushkar', 26.4876, 74.5518, 'pure', 'Pushkar is strictly vegetarian. Could fit on the Jaipur → Jodhpur leg if you break the journey (would need a different train/cab).')
+    P('Raptor Safari – Jorbeer Conservation Reserve', 'safari', 'Bikaner', '', '', 'unknown', 'From your notes: “CHECK” – https://jorbeer.com/vinayak-guest-house/ – DR SOLANKI. About 14.5 km south-east of Bikaner. Best day: 24 Jan (you arrive 23 Jan 06:15 and leave on the 22:30 train on 24 Jan). Pin not set – tap Edit → Find on map.', { plan: 'yes', tix: 'tobook' }),
+    P('Sambhar Salt Lake – cab trip from Phulera', 'nature', 'Phulera', 26.9086, 75.1887, 'unknown', 'From your notes: ₹2,000 for a cab to see the salt lake and nearby sights. Best day: 28 Jan (you arrive 27 Jan 13:18, night train 23:25 on 28 Jan). Pin is approximate.', { plan: 'yes', cost: 2000 }),
+    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your notes just say “SAFARI -”. Add the name, price and date when you know.', { plan: 'yes' }),
+    P('Amber Fort', 'fort', 'Jaipur', 26.9855, 75.8513, 'unknown', IDEA + 'Go early to beat crowds. Indian adults about ₹200 each (some sources say ₹100) – confirm.', { cost: 400 }),
+    P('City Palace, Jaipur', 'museum', 'Jaipur', 26.9258, 75.8237, 'unknown', IDEA + 'Run by the royal family trust, so confirm the price at the counter (reported about ₹200–400 pp).', { cost: 400 }),
+    P('Hawa Mahal', 'fort', 'Jaipur', 26.9239, 75.8267, 'unknown', IDEA + 'The outside is free to view from the street (great at sunset); interior about ₹100 pp.', { cost: 200 }),
+    P('Jantar Mantar', 'museum', 'Jaipur', 26.9247, 75.8246, 'unknown', IDEA + 'About ₹100 pp (older listings ₹50).', { cost: 200 }),
+    P('LMB – Laxmi Misthan Bhandar (Johari Bazaar)', 'food', 'Jaipur', 26.9188, 75.8268, 'pure', IDEA + 'Pure-veg Rajasthani thali & sweets (please confirm hours).'),
+    P('Junagarh Fort', 'fort', 'Bikaner', 28.0179, 73.3153, 'unknown', IDEA + 'Bikaner’s main fort. Entry fee and timings not checked.'),
+    P('Karni Mata Temple, Deshnok', 'temple', 'Bikaner', 27.7907, 73.3419, 'unknown', IDEA + 'Famous temple of the rats, a short trip from Bikaner. Timings and any fees not checked.'),
+    P('Keoladeo National Park', 'nature', 'Bharatpur', 27.1667, 77.5167, 'unknown', IDEA + 'Bird sanctuary right by Bharatpur – good for the 25–26 Jan days. Entry fee, cycle/rickshaw hire and timings not checked.'),
+    P('Jawai leopard safari', 'safari', 'Jawai', 25.12, 73.15, 'unknown', IDEA + 'Jawai is known for leopards living on the granite hills; safaris and prices are arranged through lodges. Not checked. Pin is approximate.'),
+    P('Mehrangarh Fort', 'fort', 'Jodhpur', 26.2979, 73.0184, 'unknown', IDEA + 'One listing: ₹100 pp for Indian adults, 9:00–17:00 (foreign adults ₹600 incl. audio guide). Confirm at the gate.', { cost: 200 }),
+    P('Jaswant Thada', 'temple', 'Jodhpur', 26.3044, 73.021, 'unknown', IDEA + 'Small fee at the counter (price not confirmed).'),
+    P('Clock Tower & Sardar Market', 'market', 'Jodhpur', 26.294, 73.0187, 'options', IDEA + 'Spices, sweets, handicrafts, local lassi and snacks. Check veg status of each stall.'),
+    P('Jaisalmer Fort', 'fort', 'Jaisalmer', 26.9127, 70.9128, 'unknown', IDEA + 'About ₹50 pp for Indian visitors, Palace Museum included; roughly 9:00–18:00. Tickets at the gate.', { cost: 100 }),
+    P('Gadisar Lake', 'nature', 'Jaisalmer', 26.9101, 70.914, 'unknown', IDEA + 'Sunset walk.'),
+    P('Kuldhara Abandoned Village', 'temple', 'Jaisalmer', 26.8137, 70.7889, 'unknown', IDEA + 'Small entry fee at the gate (not confirmed).'),
+    P('Sam Sand Dunes – camel & jeep safari', 'dunes', 'Jaisalmer', 26.8333, 70.5167, 'unknown', IDEA + 'Arrive for sunset. Camel ride and jeep safari prices are agreed locally – ask your camp (Magic Heritage Camp may arrange it).')
   ];
-
-  const E = (d, title, category, amount, currency, paidBy, split = 'equal') => ({ id: id(), title: title + ' (sample)', date: D(d), category, amount, currency, paidBy: String(paidBy), split });
-  S.expenses = [
-    E(1, 'Taxi from Jaipur station to hotel', 'transport', 350, 'INR', 0),
-    E(1, 'Airport coffee in Dubai', 'food', 25, 'AED', 1),
-    E(2, 'Veg thali lunch near Amber', 'food', 700, 'INR', 1),
-    E(2, 'Hawa Mahal chai & snacks', 'food', 180, 'INR', 0),
-    E(2, 'Souvenirs – blue pottery', 'shopping', 1200, 'INR', 1, 'none')
-  ];
-  const L = defaultLists(start); S.tasks = L.tasks; S.contacts = L.contacts;
-  const stamp = Date.now() + 1;
+  S.expenses = [];
+  const L = defaultLists(S.trip.start); S.tasks = L.tasks; S.contacts = L.contacts;
+  const stamp = auto ? 1 : Date.now() + 1; // first-run copy is stamped 'oldest' so anything either of you edits always wins on sync
   COLS.forEach(c => S[c].forEach(it => { it._u = stamp; }));
   S.trip._u = stamp;
-  save(); UI.tab = 'home'; render(); toast('Sample loaded – edit anything!');
+  seeding = false;
+  save(); UI.tab = 'home'; render(); if (!auto) toast('Your Rajasthan trip is loaded');
 }
 
 /* ---------- boot ---------- */
 let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (map) map.invalidateSize(); }, 150); });
-render();
+if (!localStorage.getItem('safar.state')) loadSample(true); // first open: start with the Rajasthan trip, ready to edit
+else render();
 if (firebaseConfig && !localStorage.getItem('safar.code')) setTimeout(askCode, 600);
 startCloud();
 if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { });

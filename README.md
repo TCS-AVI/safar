@@ -74,3 +74,22 @@ Changes are merged **item by item** (each booking, hotel, place, expense, checkl
 ## Screen sizes
 
 Layout adapts automatically: phones get bottom tabs and single-column cards; tablets get two columns; laptops (960px+) get a left sidebar with 2–3 columns and a full-height map; very wide monitors get 4 columns. Printing a page (Ctrl/Cmd+P) gives a clean itinerary without buttons. Tested at 320, 390, 768, 1024, 1366 and 1920px wide with no sideways scrolling.
+
+## Your real trip (Jan–Feb 2027) and arrival timers
+
+Tap **Home → Load the Rajasthan trip** to fill the app from your TRAIN_BOOKINGS and RAJASTHAN_ITINERARY documents:
+8 train legs, flights home, 6 planned stays plus 12 shortlisted hotels (Jaipur, Bikaner, Bharatpur), 19 places, to-dos and contacts.
+
+- **Arrival timers**: every transport leg shows a live countdown ("Arrives in 3d 6h 30m", "On the way", "Arrived"). Set the arrival date/time and time zone (India or Dubai) in the booking form. Timers appear on Home, Plan, Today and Bookings.
+- **Alternative legs**: where your two documents disagree, both versions are kept; alternatives show timers but are left out of the plan, budget and checks.
+- **Shortlisted hotels**: press ✓ Choose on one; the rest of that city's options are cancelled and the budget uses your pick.
+- Statuses all start as "Not booked": change them as you book. Set your budget and AED rate under Money.
+- If you use Firebase, re-publish `firestore.rules` from this folder.
+
+## Sync and calendar fixes
+- Plan tab: a month calendar plus day-by-day list that follow the trip dates in Trip settings. Items outside those dates are flagged.
+- Sync: edits are merged inside a transaction (no overwriting each other), refreshed on opening, focus, reconnect and every minute, retried after errors. Tap the badge (or Home → 🔄 Sync now) to force a refresh; hover/long-press it to see the last sync time or error.
+- Both phones must use the same sync code, and Firestore rules + Anonymous sign-in must be enabled (README steps above).
+
+## First open
+The app now opens with the Rajasthan Jan–Feb 2027 trip already in it. Edit anything; edits always win over the starting copy when two phones sync.
