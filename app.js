@@ -973,12 +973,34 @@ function loadSample(auto) {
     H('Hotel Rameshwaram', 'Jaipur', '2027-02-05', '2027-02-07', 'pending', 1260, '5–7 Feb (Fri–Sun). ₹1,260 is what your notes list – the same hotel was ₹2,268 for 2 nights earlier, so this may be one night only. Check. Reach Jaipur 17:45 on 5 Feb. Flights leave on 7 Feb.')
   ];
 
-  const P = (name, category, city, lat, lng, veg, notes, o = {}) => ({ id: id(), name, category, city, lat, lng, date: '', time: '', veg, notes, cost: 0, tix: 'gate', plan: 'idea', visited: false, ...o });
-  const IDEA = '💡 Idea (not in your documents). ';
+  const P = (name, category, city, lat, lng, veg, notes, o = {}) => ({ id: id(), name, category, city, lat, lng, date: '', time: '', veg, notes, cost: 0, tix: 'gate', plan: 'yes', visited: false, ...o });
+  const AP = ' Pin is approximate – Edit → Find on map to fix.';
+  const OPT = { plan: 'idea' }; // “Idea / maybe” = optional: shown in the plan, not counted in the budget
   S.places = [
-    P('Raptor Safari – Jorbeer Conservation Reserve', 'safari', 'Bikaner', '', '', 'unknown', 'From your notes: “CHECK” – https://jorbeer.com/vinayak-guest-house/ – DR SOLANKI. About 14.5 km south-east of Bikaner. Best day: 24 Jan (you arrive 23 Jan 06:15 and leave on the 22:30 train on 24 Jan). Pin not set – tap Edit → Find on map.', { plan: 'yes', tix: 'tobook' }),
-    P('Sambhar Salt Lake – cab trip from Phulera', 'nature', 'Phulera', 26.9086, 75.1887, 'unknown', 'From your notes: ₹2,000 for a cab to see the salt lake and nearby sights. Best day: 28 Jan (you arrive 27 Jan 13:18, night train 23:25 on 28 Jan). Pin is approximate.', { plan: 'yes', cost: 2000 }),
-    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your notes just say “SAFARI -”. Add the name, price and date when you know.', { plan: 'yes' })
+    // ---- from your itinerary ----
+    P('Raptor Safari – Jorbeer Conservation Reserve', 'safari', 'Bikaner', '', '', 'unknown', 'From your itinerary: “CHECK” – https://jorbeer.com/vinayak-guest-house/ – DR SOLANKI. You are in Bikaner 23 Jan 06:15 → 24 Jan 22:30. Pin not set – Edit → Find on map.', { tix: 'tobook' }),
+    P('Sambhar Salt Lake – cab trip from Phulera', 'nature', 'Phulera', 26.9086, 75.1887, 'unknown', 'From your itinerary: ₹2,000 for a cab to see the salt lake and nearby sights. You are in Phulera 27 Jan 13:18 → 28 Jan night train 23:25.' + AP, { cost: 2000 }),
+    P('Safari at Phulera (details missing)', 'safari', 'Phulera', '', '', 'unknown', 'Your itinerary just says “SAFARI -”. Add the name, price and date when you know.'),
+    // ---- your places list, placed in the city/dates of your itinerary ----
+    P('Salasar Balaji Mandir', 'temple', 'Jaipur', 27.7228, 74.7108, 'unknown', 'Jaipur stay 20–22 Jan. Salasar is a long drive from Jaipur (roughly 3 hours each way) – plan a full day.' + AP, { date: '2027-01-21', time: '07:00' }),
+    P('Sariska Tiger Reserve – tiger safari', 'safari', 'Sariska', 27.326, 76.42, 'unknown', 'Day trip from Jaipur (stay 20–22 Jan). Your train leaves Jaipur 23:45 on 22 Jan, so an afternoon safari fits that day. Safari slots and permits need booking ahead.' + AP, { date: '2027-01-22', time: '15:00', tix: 'tobook' }),
+    P('Karni Mata Temple, Deshnok', 'temple', 'Bikaner', 27.7907, 73.3419, 'unknown', 'Bikaner stay 23–24 Jan (arrive 06:15 on 23 Jan).', { date: '2027-01-23', time: '15:00' }),
+    P('Keoladeo National Park (birdwatching)', 'nature', 'Bharatpur', 27.1667, 77.5167, 'unknown', 'Bharatpur stay 25–27 Jan (arrive 07:25 on 25 Jan, leave 08:10 on 27 Jan). Best at early morning.', { date: '2027-01-26', time: '06:30' }),
+    P('Khichan – seasonal migratory birdwatching', 'nature', 'Khichan', 27.17, 72.4, 'unknown', 'Not an itinerary stop – Khichan (near Phalodi) lies between Jaisalmer and Jodhpur. Birds are seasonal, so check it is the right time. Pick a day or skip.' + AP),
+    P('Jaisalmer Fort & Jain Temples', 'fort', 'Jaisalmer', 26.9127, 70.9128, 'unknown', 'Jaisalmer stay 29–31 Jan (arrive 09:00 on 29 Jan).', { date: '2027-01-29', time: '11:00' }),
+    P('Patwon Ki Haveli (optional)', 'museum', 'Jaisalmer', 26.916, 70.917, 'unknown', 'Optional. Jaisalmer stay 29–31 Jan.' + AP, { date: '2027-01-29', time: '14:30', ...OPT }),
+    P('Gadisar Lake (optional)', 'nature', 'Jaisalmer', 26.9101, 70.914, 'unknown', 'Optional. Jaisalmer stay 29–31 Jan.', { date: '2027-01-29', time: '17:00', ...OPT }),
+    P('Bada Bagh', 'temple', 'Jaisalmer', 26.96, 70.93, 'unknown', 'Jaisalmer stay 29–31 Jan.' + AP, { date: '2027-01-30', time: '09:00' }),
+    P('Kuldhara', 'temple', 'Jaisalmer', 26.8137, 70.7889, 'unknown', 'Jaisalmer stay 29–31 Jan.', { date: '2027-01-30', time: '13:00' }),
+    P('Sam Sand Dunes – camel ride, sunset, cultural programme', 'dunes', 'Jaisalmer', 26.8333, 70.5167, 'unknown', 'Jaisalmer stay 29–31 Jan. Reach for sunset; price for camel ride and programme is agreed locally.', { date: '2027-01-30', time: '16:30' }),
+    P('Osiyan Mata Mandir', 'temple', 'Osiyan', 26.7167, 72.9167, 'unknown', 'Day trip from Jodhpur (stay 31 Jan – 2 Feb per your itinerary; the train list differs – see Transport).' + AP, { date: '2027-02-01', time: '09:00' }),
+    P('Nakoda Ji Jain Mandir', 'temple', 'Nakoda Ji', 25.78, 72.26, 'unknown', 'Stop between Jodhpur and Jawai on 2 Feb (you leave Jodhpur 12:00 and reach Jawai 15:00 – check the timing works).' + AP, { date: '2027-02-02', time: '12:00' }),
+    P('Jawai – nature & birdwatching areas', 'nature', 'Jawai', 25.12, 73.15, 'unknown', 'Jawai stay 2–5 Feb.' + AP, { date: '2027-02-03', time: '07:00' }),
+    P('Jawai Leopard Safari', 'safari', 'Jawai', 25.12, 73.15, 'unknown', 'Jawai stay 2–5 Feb. Safaris are arranged through the hotel.' + AP, { date: '2027-02-03', time: '16:30', tix: 'tobook' }),
+    P('Parshuram Mahadev Temple (near Sadri)', 'temple', 'Sadri', 25.17, 73.55, 'unknown', 'Near Sadri, a day trip from Jawai (stay 2–5 Feb).' + AP, { date: '2027-02-04', time: '08:00' }),
+    P('Kumbhalgarh Fort', 'fort', 'Udaipur', 25.1528, 73.5871, 'unknown', 'Listed under Udaipur in your places list. Not an itinerary stop – Kumbhalgarh is near Jawai/Sadri, so it fits a day trip from Jawai (stay 2–5 Feb).', { date: '2027-02-04', time: '11:30' }),
+    P('Kumbhalgarh Wildlife Sanctuary – safari (optional)', 'safari', 'Udaipur', 25.15, 73.55, 'unknown', 'Optional safari, same area as Kumbhalgarh Fort.' + AP, { date: '2027-02-04', time: '16:00', ...OPT }),
+    P('Temple darshan stops (en route)', 'temple', 'En route', '', '', 'unknown', 'Wherever practical along the way – no fixed place or date.', { ...OPT })
   ];
   S.expenses = [];
   // only what is in your two documents (no packing lists, no extra sightseeing ideas)
