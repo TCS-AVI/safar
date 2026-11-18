@@ -317,6 +317,18 @@ function viewHome() {
   </div>`;
 }
 
+function shiftDates() {
+  const all = [...S.bookings.map(b => b.date), ...S.stays.map(h => h.checkin), ...S.places.map(p => p.date)].filter(Boolean).sort();
+  if (!all.length || !S.trip.start) return;
+  const delta = diffDays(all[0], S.trip.start);
+  if (!delta || !confirm(`Move every booking, stay, place and due date ${Math.abs(delta)} days ${delta > 0 ? 'later' : 'earlier'}, so the first item lands on ${fmt(S.trip.start)} ${S.trip.start.slice(0, 4)}?`)) return;
+  const mv = d => d ? addDays(d, delta) : d;
+  S.bookings.forEach(b => { b.date = mv(b.date); b.arrDate = mv(b.arrDate); touch(b); });
+  S.stays.forEach(h => { h.checkin = mv(h.checkin); h.checkout = mv(h.checkout); touch(h); });
+  S.places.forEach(p => { p.date = mv(p.date); touch(p); });
+  S.tasks.forEach(t => { if (t.due) { t.due = mv(t.due); touch(t); } });
+  save(); render(); toast('All dates moved');
+}
 function calendarHTML(ev, first, last) {
   const t = S.trip, today = todayISO(), has = {};
   ev.forEach(e => { has[e.date] = (has[e.date] || 0) + 1; });
@@ -339,20 +351,24 @@ function viewPlan() {
   if (!ev.length) return empty('Your day-by-day plan appears here once you add dated bookings, stays or places.', sampleBtn);
   const dates = ev.map(e => e.date), t = S.trip, base = t.start || dates[0], today = todayISO();
   // the plan covers the TRIP dates (so changing them changes the plan), and stretches to include any item outside them
-  const first = [t.start, dates[0]].filter(Boolean).sort()[0], last = [t.end, dates[dates.length - 1]].filter(Boolean).sort().pop();
+  // with trip dates set, the calendar and days cover exactly those dates; anything dated outside is listed separately
+  const ranged = t.start && t.end && t.end >= t.start;
+  const first = ranged ? t.start : dates[0], last = ranged ? t.end : dates[dates.length - 1];
+  const outEv = ranged ? ev.filter(e => e.date < first || e.date > last) : [];
   let html = '', d = first, guard = 0;
   while (d <= last && guard++ < 400) {
     const items = ev.filter(e => e.date === d);
     const stay = S.stays.filter(h => h.status !== 'shortlist' && h.status !== 'cancelled' && h.checkin && h.checkout && h.checkin < d && d < h.checkout);
     const cities = [...new Set(items.filter(e => e.kind === 'place').map(e => S.places.find(p => p.id === e.id)?.city).filter(Boolean))].join(', ');
-    const out = (t.start && d < t.start) || (t.end && d > t.end);
+    const out = false;
     html += `<div class="day" id="day-${d}"><h4>${d === today ? '🟢 ' : ''}${out ? 'Outside trip dates' : 'Day ' + (diffDays(base, d) + 1)} · ${fmt(d)}${cities ? ' · ' + esc(cities) : ''}</h4>
       ${items.map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b>${e.sub ? `<div class="muted">${esc(e.sub)}</div>` : ''}${e.timer ? `<div style="margin-top:3px">${e.timer}</div>` : ''}</div>${e.pill}</div>`).join('')}
       ${stay.map(h => `<div class="item"><div class="ico">🌙</div><div class="grow muted">Staying at ${esc(h.name)}</div></div>`).join('')}
       ${!items.length && !stay.length ? '<div class="muted">Free day – add something 🙂</div>' : ''}</div>`;
     d = addDays(d, 1);
   }
-  return `<div class="h2">Calendar <span><button class="btn ghost small" data-act="edit" data-kind="trip">Change dates</button></span></div>${calendarHTML(ev, first, last)}<div class="h2">Day-by-day <span>${addBtn('place', 'Place')}</span></div>${html}`;
+  const outCard = outEv.length ? `<div class="card hl warn"><h3>⚠️ ${outEv.length} item${outEv.length > 1 ? 's are' : ' is'} dated outside ${fmtS(first)}–${fmtS(last)} ${new Date(last + 'T00:00:00').getFullYear()}</h3><div class="muted">Earliest is ${fmt(outEv[0].date)} ${new Date(outEv[0].date + 'T00:00:00').getFullYear()}. If your trip dates are right and these are just in the wrong year or week, move them all in one go.</div><div style="margin-top:8px"><button class="btn small" data-act="shiftdates">↔ Move all dates to start on ${fmtS(first)}</button></div>${outEv.slice(0, 8).map(e => `<div class="item" data-act="edit" data-kind="${e.kind}" data-id="${e.id}" style="cursor:pointer"><div class="ico">${e.ico}</div><div class="grow"><b>${esc(e.title)}</b><div class="muted">${fmt(e.date)} ${new Date(e.date + 'T00:00:00').getFullYear()}</div></div></div>`).join('')}${outEv.length > 8 ? `<div class="muted">…and ${outEv.length - 8} more</div>` : ''}</div>` : '';
+  return `${outCard}<div class="h2">Calendar <span><button class="btn ghost small" data-act="edit" data-kind="trip">Change dates</button></span></div>${calendarHTML(ev, first, last)}<div class="h2">Day-by-day <span>${addBtn('place', 'Place')}</span></div>${html}`;
 }
 
 function viewBook() {
@@ -485,6 +501,7 @@ document.addEventListener('click', e => {
       h.status = 'pending'; touch(h); save(); render(); toast('Chosen – the other options were marked cancelled');
     }
   }
+  else if (act === 'shiftdates') shiftDates();
   else if (act === 'ics') exportICS();
   else if (act === 'share') shareSummary();
   else if (act === 'print') window.print();
