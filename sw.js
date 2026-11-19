@@ -1,5 +1,5 @@
 // Safar service worker: lets the app open and work with no signal (deserts, trains, flights).
-const V = 'safar-v14', TILES = 'safar-tiles';
+const V = 'safar-v20', TILES = 'safar-tiles';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'trip.enc', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 
@@ -33,7 +33,7 @@ self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET') return;
   const u = new URL(req.url);
   if (u.origin === location.origin) e.respondWith(networkFirst(req));
-  else if (u.hostname.endsWith('tile.openstreetmap.org')) e.respondWith(cacheFirst(req, TILES, 500));
+  else if (u.hostname.endsWith('tile.openstreetmap.org') || u.hostname.endsWith('basemaps.cartocdn.com')) e.respondWith(cacheFirst(req, TILES, 500));
   else if (u.hostname === 'unpkg.com' || u.hostname === 'www.gstatic.com') e.respondWith(cacheFirst(req, V));
   // everything else (Firestore, weather, geocoding) goes straight to the network
 });

@@ -41,7 +41,7 @@ firebase deploy
 - **Transport** – transport with status (Not booked → Waitlist/RAC → Confirmed) and *who is travelling* (both / you / her), plus hotels with veg flag and phone number.
 - **Places** – dated places, veg flag, ticket flag ("Need to book ahead" shows up in Trip health), visited tick.
 - **Map** – numbered route of places, dashed travel lines, hotels; tap a day chip for just that day.
-- **Money** – spending in ₹ or AED, equal split, category totals, who owes whom.
+- **Money** – spending in ₹, equal split, category totals, who owes whom.
 - **Lists** – packing, documents & IDs, to-dos with due dates, and contacts / emergency numbers. Type an item and press Enter to add.
 
 ### Trip health: what it checks
@@ -79,12 +79,12 @@ Layout adapts automatically: phones get bottom tabs and single-column cards; tab
 ## Your real trip (Jan–Feb 2027) and arrival timers
 
 Tap **Home → Load the Rajasthan trip** to fill the app from your TRAIN_BOOKINGS and RAJASTHAN_ITINERARY documents:
-8 train legs, flights home, 6 planned stays plus 12 shortlisted hotels (Jaipur, Bikaner, Bharatpur), 19 places, to-dos and contacts.
+8 train trips, flights home, 6 planned stays plus 12 shortlisted hotels (Jaipur, Bikaner, Bharatpur), 19 places, to-dos and contacts.
 
-- **Arrival timers**: every transport leg shows a live countdown ("Arrives in 3d 6h 30m", "On the way", "Arrived"). Set the arrival date/time and time zone (India or Dubai) in the booking form. Timers appear on Home, Plan, Today and Bookings.
-- **Alternative legs**: where your two documents disagree, both versions are kept; alternatives show timers but are left out of the plan, budget and checks.
+- **Arrival timers**: every transport trip shows a live countdown ("Arrives in 3d 6h 30m", "On the way", "Arrived"). Set the arrival date/time and time zone (India or Dubai) in the booking form. Timers appear on Home, Plan, Today and Bookings.
+- **Alternative trips**: where your two documents disagree, both versions are kept; alternatives show timers but are left out of the plan, budget and checks.
 - **Shortlisted hotels**: press ✓ Choose on one; the rest of that city's options are cancelled and the budget uses your pick.
-- Statuses all start as "Not booked": change them as you book. Set your budget and AED rate under Money.
+- Statuses all start as "Not booked": change them as you book. Set your budget under Money.
 - If you use Firebase, re-publish `firestore.rules` from this folder.
 
 ## Sync and calendar fixes
@@ -101,3 +101,6 @@ The app opens on a passcode screen. Your Rajasthan trip is stored **encrypted** 
 - **Change the passcode:** open `change-passcode.html` in a browser (it works offline), choose `trip.enc`, enter the old and new passcode, and upload the new `trip.enc` it creates.
 - **Lock a phone:** Home → 🔒 Lock. "Remember on this device" keeps a phone unlocked for 30 days.
 - The lock keeps strangers out of the app and hides the built-in trip. Live edits stay protected by your Firebase sync code and rules. Keep both secret.
+
+## Map = the journey, first to last
+Map → **🧭 Whole journey** shows numbered stops (1, 2, 3 …) in travel order, joined by your transport trips, with a written list underneath: when you arrive and leave, how you get there, where you stay and what you see. A city you come back to shows both numbers (e.g. 2·9). Alternative legs are dotted grey. Tap a **Day** chip to see just that day. Everything comes from your own bookings, stays and places.
