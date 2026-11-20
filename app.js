@@ -13,7 +13,7 @@ const addDays = (d, n) => { const x = toDate(d); x.setDate(x.getDate() + n); ret
 const diffDays = (a, b) => Math.round((toDate(b) - toDate(a)) / 86400000);
 const fmt = d => d ? toDate(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) : 'No date';
 const fmtS = d => d ? toDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '';
-const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); };
+const toast = m => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), m.length > 50 ? 5000 : 2200); };
 
 /* ---------- constants ---------- */
 const MODES = [['train', '🚆 Train'], ['bus', '🚌 Bus'], ['flight', '✈️ Flight'], ['cab', '🚗 Cab / Car'], ['other', '🧭 Other']];
@@ -450,11 +450,18 @@ function journey() {
   const legs = S.bookings.filter(b => b.status !== 'cancelled' && b.status !== 'option').sort((a, b) => legKey(a.date, a.time).localeCompare(legKey(b.date, b.time)));
   const alts = S.bookings.filter(b => b.status === 'option');
   if (!legs.length) return { stops: [], legs, alts };
-  const first = legs[0];
-  const stops = [{ city: first.from, ll: coordFor(first.from), arrDate: '', arrTime: '', via: null, start: true }];
-  legs.map(b => ({ b, k: arrOf(b) ? arrOf(b).getTime() : Date.parse(legKey(b.arrDate || b.date, b.arrTime || b.time) + ':00+05:30') }))
-    .sort((x, y) => x.k - y.k)
-    .forEach(({ b }) => stops.push({ city: b.to, ll: coordFor(b.to), arrDate: b.arrDate || b.date, arrTime: b.arrTime || '', via: b }));
+  const T0 = (d, t, x) => x ? x.getTime() : Date.parse(legKey(d, t) + ':00+05:30');
+  const arrK = b => T0(b.arrDate || b.date, b.arrTime || b.time, arrOf(b)), depK = b => T0(b.date, b.time, depOf(b));
+  // a start = a place someone leaves from without having arrived there earlier (e.g. her Mumbai, his Jammu)
+  const starts = [];
+  legs.forEach(b => { const k = cityKey(b.from); if (!starts.some(s => cityKey(s.city) === k) && !legs.some(x => x !== b && cityKey(x.to) === k && arrK(x) <= depK(b))) starts.push({ city: b.from, ll: coordFor(b.from), arrDate: '', arrTime: '', via: null, start: true, k: depK(b) }); });
+  const arrivals = legs.map(b => ({ city: b.to, ll: coordFor(b.to), arrDate: b.arrDate || b.date, arrTime: b.arrTime || '', via: b, k: arrK(b) }));
+  const stops = [];
+  [...starts, ...arrivals].sort((x, y) => x.k - y.k || (y.start ? 1 : 0) - (x.start ? 1 : 0)).forEach(s => {
+    const prev = stops[stops.length - 1];
+    if (prev && !s.start && !prev.start && cityKey(prev.city) === cityKey(s.city)) (prev.more = prev.more || []).push(s.via);  // two people arriving in the same city together
+    else stops.push(s);
+  });
   stops.forEach((st, i) => {
     st.n = i + 1;
     const nk = cityKey(st.city), after = st.start ? '' : legKey(st.arrDate, st.arrTime);
@@ -474,7 +481,7 @@ function journeyHTML() {
   const J = journey(); if (!J.stops.length) return '';
   const row = st => `<div class="jstop" data-act="flyto" data-v="${st.ll ? st.ll.join(',') : ''}"><div class="jn">${st.n}</div><div class="grow"><b>${esc(st.city)}</b>
     <div class="muted">${stopWhen(st)}</div>
-    ${st.via ? `<div class="muted">${MODE_ICO[st.via.mode] || ''} came by ${esc(label(MODES, st.via.mode).replace(/^\S+\s/, '').toLowerCase())} from ${esc(st.via.from)}</div>` : ''}
+    ${st.via ? [st.via, ...(st.more || [])].map(v => `<div class="muted">${MODE_ICO[v.mode] || ''} came by ${esc(label(MODES, v.mode).replace(/^\S+\s/, '').toLowerCase())} from ${esc(v.from)}${st.more ? ` · arrives ${esc(v.arrTime || '')}${v.who === '0' || v.who === '1' ? ' · ' + esc(people()[+v.who]) : ''}` : ''}</div>`).join('') : ''}
     ${st.out ? `<div class="muted">next: ${MODE_ICO[st.out.mode] || ''} to ${esc(st.out.to)}</div>` : ''}
     ${st.stays.length ? `<div>🏨 Stay: ${st.stays.map(h => h.status === 'shortlist' ? '' : `${esc(h.name)} <span class="muted">(${esc(label(SSTAT, h.status))})</span>`).filter(Boolean).join(', ') || `<span class="muted">${st.stays.length} hotel options shortlisted – choose one under Hotels</span>`}</div>` : ''}
     ${st.see.length ? `<div>👀 See: ${st.see.map(p => `${esc(p.name)}${p.date ? ` <span class="muted">(${fmtS(p.date)})</span>` : ''}`).join(' · ')}</div>` : ''}
@@ -746,7 +753,7 @@ function audit() {
   bk.filter(b => ['train', 'bus', 'flight'].includes(b.mode) && b.date).forEach(b => {
     const still = stays.find(h => sameCity(h.city, b.from) && h.checkin && h.checkin <= b.date && h.checkout && b.date < h.checkout);
     if (still) add('warn', `You leave ${b.from} on ${fmt(b.date)} but ${still.name} is booked until ${fmt(still.checkout)}`, 'Two of your plans disagree, or you would pay for a night you do not use. Check the dates.', 'booking', b.id);
-    const arr = b.arrDate || b.date, there = stays.filter(h => h.checkin && sameCity(h.city, b.to));
+    const arr = b.arrDate || b.date, there = S.stays.filter(h => h.status !== 'cancelled' && h.checkin && sameCity(h.city, b.to));
     if (there.length && !there.some(h => h.checkin <= arr && (h.checkout ? arr < h.checkout : arr === h.checkin))) {
       const nxt = there.filter(h => h.checkin > arr).sort((x, y) => x.checkin.localeCompare(y.checkin))[0];
       add('warn', `You arrive in ${b.to} on ${fmt(arr)} but have no stay there that night`, nxt ? `Your next stay there starts ${fmt(nxt.checkin)} (${nxt.name}).` : 'Your stays there have all ended.', 'booking', b.id);
@@ -1030,7 +1037,7 @@ async function decryptTrip(pass) {
   const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(blob.s), iterations: blob.n, hash: 'SHA-256' }, km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
   return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(blob.i) }, key, b64(blob.c))));
 }
-const SEED_GEN = '2027-1';
+const SEED_GEN = '2027-3';
 async function loadSample(auto, purge) {
   if (!auto && (S.bookings.length || S.places.length || S.stays.length) && !confirm('This replaces what you have now with your saved Rajasthan plan. Continue?')) return;
   let pass = ''; try { pass = sessionStorage.getItem('safar.pass') || ''; } catch { }
@@ -1095,3 +1102,19 @@ async function startApp() {
 }
 const appReady = startApp();
 if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => { });
+
+/* ---------- install as an app (free, no store) ---------- */
+{
+  const ib = $('#installBtn'); let deferred = null;
+  const standalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  if (ib && !standalone() && /^https?:/.test(location.protocol)) {
+    if (ios) ib.hidden = false;
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; ib.hidden = false; });
+    ib.onclick = async () => {
+      if (deferred) { deferred.prompt(); await deferred.userChoice.catch(() => { }); deferred = null; ib.hidden = true; }
+      else toast(ios ? 'On iPhone: tap the Share button, then “Add to Home Screen”.' : 'Use your browser menu → “Install app” / “Add to Home screen”.');
+    };
+    window.addEventListener('appinstalled', () => { ib.hidden = true; toast('Safar installed ✓'); });
+  }
+}

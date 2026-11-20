@@ -226,3 +226,4 @@ body.locked>:not(#lock):not(script){visibility:hidden}
 .jn{flex:0 0 30px;height:30px;border-radius:50%;background:#2b2118;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
 .jstop b{font-size:16px}
 .jother{padding:6px 0;cursor:pointer}
+.badge[hidden]{display:none}
